@@ -1,0 +1,198 @@
+{
+  "name": "polymarket-bot",
+  "displayName": "Polymarket Research Bot",
+  "description": "AI-powered Polymarket prediction market research with Claude reasoning engine",
+  "version": "1.0.0",
+  "publisher": "kauma-phani",
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "polymarket",
+    "trading",
+    "ai",
+    "prediction markets",
+    "claude"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "polymarket-sidebar",
+          "title": "Polymarket Bot",
+          "icon": "media/sidebar-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "polymarket-sidebar": [
+        {
+          "id": "polymarket.signals",
+          "name": "Live Signals",
+          "type": "webview"
+        },
+        {
+          "id": "polymarket.portfolio",
+          "name": "Paper Portfolio",
+          "type": "webview"
+        },
+        {
+          "id": "polymarket.reasoning",
+          "name": "Reasoning Chain",
+          "type": "webview"
+        },
+        {
+          "id": "polymarket.markets",
+          "name": "Qualified Markets",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "polymarket.runScan",
+        "title": "Run Market Scan",
+        "icon": "$(play)"
+      },
+      {
+        "command": "polymarket.runOnce",
+        "title": "Single Reasoning Cycle",
+        "icon": "$(debug-step-over)"
+      },
+      {
+        "command": "polymarket.showStatus",
+        "title": "Show Portfolio Status",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "polymarket.openSettings",
+        "title": "Configure Bot Settings",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "polymarket.openDashboard",
+        "title": "Open Full Dashboard",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "polymarket.stopBot",
+        "title": "Stop Bot",
+        "icon": "$(debug-stop)"
+      }
+    ],
+    "menus": {
+      "editor/title": [],
+      "view/title": [
+        {
+          "command": "polymarket.runScan",
+          "when": "view == polymarket.signals",
+          "group": "navigation"
+        },
+        {
+          "command": "polymarket.showStatus",
+          "when": "view == polymarket.portfolio",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Polymarket Bot",
+      "properties": {
+        "polymarket.anthropicApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Anthropic API key for Claude reasoning engine",
+          "markdownDescription": "Get your key at [console.anthropic.com](https://console.anthropic.com)"
+        },
+        "polymarket.telegramBotToken": {
+          "type": "string",
+          "default": "",
+          "description": "Telegram bot token for alerts (optional)"
+        },
+        "polymarket.telegramChatId": {
+          "type": "string",
+          "default": "",
+          "description": "Telegram chat ID for alerts (optional)"
+        },
+        "polymarket.focusDomains": {
+          "type": "array",
+          "default": [
+            "crypto",
+            "politics",
+            "economics"
+          ],
+          "description": "Market domains to analyse"
+        },
+        "polymarket.minEdge": {
+          "type": "number",
+          "default": 0.06,
+          "minimum": 0.03,
+          "maximum": 0.25,
+          "description": "Minimum edge (probability gap) to flag a signal (default: 6%)"
+        },
+        "polymarket.minConfidence": {
+          "type": "number",
+          "default": 0.65,
+          "minimum": 0.5,
+          "maximum": 0.95,
+          "description": "Minimum confidence to generate a signal (default: 65%)"
+        },
+        "polymarket.startingCapital": {
+          "type": "number",
+          "default": 10000,
+          "description": "Paper trading starting capital in USD"
+        },
+        "polymarket.botPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to polymarket_bot directory (auto-detected if blank)"
+        },
+        "polymarket.scanIntervalMinutes": {
+          "type": "number",
+          "default": 15,
+          "minimum": 5,
+          "maximum": 60,
+          "description": "How often to scan for new markets (minutes)"
+        },
+        "polymarket.autoStartOnOpen": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically start bot when VS Code opens"
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "polymarket.runScan",
+        "key": "ctrl+shift+p",
+        "mac": "cmd+shift+p",
+        "when": "false"
+      },
+      {
+        "command": "polymarket.openDashboard",
+        "key": "ctrl+alt+m",
+        "mac": "cmd+alt+m"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package",
+    "lint": "eslint src"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.37",
+    "@types/vscode": "^1.110.0",
+    "@vscode/vsce": "^2.24.0",
+    "typescript": "^5.9.3"
+  }
+}
