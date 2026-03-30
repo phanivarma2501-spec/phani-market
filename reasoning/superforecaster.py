@@ -248,17 +248,27 @@ class SuperForecaster:
     ) -> Tuple[float, float, float]:
         """
         Fractional Kelly sizing with confidence band scaling.
+        Handles both BUY (YES) and SELL (NO) directions.
         Returns: (full_kelly, position_pct, position_usd)
         """
-        if our_prob <= market_price:
+        # Determine direction: BUY YES or BUY NO
+        if our_prob > market_price:
+            # BUY YES: we think YES is underpriced
+            bet_price = market_price
+            p = our_prob
+        elif our_prob < market_price:
+            # BUY NO: we think NO is underpriced (YES is overpriced)
+            bet_price = 1.0 - market_price
+            p = 1.0 - our_prob
+        else:
             return 0.0, 0.0, 0.0
 
         # Kelly formula: f = (bp - q) / b
-        b = (1.0 / market_price) - 1.0
+        b = (1.0 / bet_price) - 1.0
         if b <= 0:
             return 0.0, 0.0, 0.0
 
-        p, q = our_prob, 1.0 - our_prob
+        q = 1.0 - p
         full_kelly = max(0.0, (b * p - q) / b)
 
         # Scale by confidence: only bet more when very confident
