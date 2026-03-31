@@ -24,6 +24,22 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Phani Market Bot", lifespan=lifespan)
 
 
+@app.get("/api/status")
+async def api_status():
+    """Health check — shows if bot has run and DB has data."""
+    import os
+    from config.settings import settings
+    db_exists = os.path.exists(settings.DB_PATH)
+    perf = await storage.get_performance_summary() if db_exists else {}
+    return {
+        "status": "ok",
+        "db_exists": db_exists,
+        "db_path": settings.DB_PATH,
+        "total_trades": perf.get("total_trades", 0),
+        "message": "Waiting for first scan..." if perf.get("total_trades", 0) == 0 else "Bot is running",
+    }
+
+
 @app.get("/api/portfolio")
 async def api_portfolio():
     perf = await storage.get_performance_summary()
