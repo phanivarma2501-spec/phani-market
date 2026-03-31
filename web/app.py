@@ -28,14 +28,19 @@ app = FastAPI(title="Phani Market Bot", lifespan=lifespan)
 async def api_status():
     """Health check — shows if bot has run and DB has data."""
     import os
+    import threading
     from config.settings import settings
     db_exists = os.path.exists(settings.DB_PATH)
     perf = await storage.get_performance_summary() if db_exists else {}
+    threads = [t.name for t in threading.enumerate()]
     return {
         "status": "ok",
         "db_exists": db_exists,
         "db_path": settings.DB_PATH,
         "total_trades": perf.get("total_trades", 0),
+        "threads": threads,
+        "thread_count": len(threads),
+        "env_key_set": bool(os.environ.get("ANTHROPIC_API_KEY")),
         "message": "Waiting for first scan..." if perf.get("total_trades", 0) == 0 else "Bot is running",
     }
 
