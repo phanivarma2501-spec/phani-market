@@ -18,11 +18,14 @@ from core.engine import BotEngine
 
 def run_bot():
     """Run the bot scan loop in a separate thread."""
+    import traceback
     try:
+        print("[BOT] Starting bot engine...", flush=True)
         engine = BotEngine(starting_capital=10_000.0)
         asyncio.run(engine.run())
     except Exception as e:
-        print(f"Bot error: {e}", flush=True)
+        print(f"[BOT] FATAL ERROR: {e}", flush=True)
+        traceback.print_exc()
 
 
 # Start bot in background thread
