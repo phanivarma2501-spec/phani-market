@@ -149,10 +149,13 @@ class BotEngine:
         """Main run loop with scheduling."""
         self._running = True
 
-        # Graceful shutdown on SIGINT/SIGTERM
-        loop = asyncio.get_running_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, lambda: asyncio.create_task(self.shutdown()))
+        # Graceful shutdown on SIGINT/SIGTERM (only works in main thread)
+        try:
+            loop = asyncio.get_running_loop()
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(sig, lambda: asyncio.create_task(self.shutdown()))
+        except RuntimeError:
+            pass  # Running in non-main thread (e.g. Railway), skip signal handlers
 
         await self.startup()
 
