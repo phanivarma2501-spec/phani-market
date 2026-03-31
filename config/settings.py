@@ -20,7 +20,7 @@ class PolymarketConfig(BaseSettings):
 
     # --- Anthropic (for reasoning engine) ---
     ANTHROPIC_API_KEY: str = Field(..., env="ANTHROPIC_API_KEY")
-    REASONING_MODEL: str = "claude-sonnet-4-5"
+    REASONING_MODEL: str = "claude-haiku-4-5-20251001"
 
     # --- Telegram alerts ---
     TELEGRAM_BOT_TOKEN: Optional[str] = Field(None, env="TELEGRAM_BOT_TOKEN")
@@ -74,8 +74,8 @@ class PolymarketConfig(BaseSettings):
     MAX_CORRELATED_EXPOSURE: float = 0.15  # Max 15% in correlated markets
 
     # --- Scan schedule ---
-    MARKET_SCAN_INTERVAL_MINUTES: int = 15   # How often to scan for new markets
-    REASONING_SCAN_INTERVAL_MINUTES: int = 30  # How often to re-reason existing
+    MARKET_SCAN_INTERVAL_MINUTES: int = 60   # How often to scan for new markets
+    REASONING_SCAN_INTERVAL_MINUTES: int = 60  # How often to re-reason existing
     NEWS_FETCH_INTERVAL_MINUTES: int = 10
 
     # --- Storage ---
