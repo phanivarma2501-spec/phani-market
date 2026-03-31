@@ -4,6 +4,8 @@ Run with: uvicorn web.app:app --reload --port 8050
 """
 
 import asyncio
+import os
+import threading
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from contextlib import asynccontextmanager
@@ -15,9 +17,27 @@ from core.market_fetcher import MarketFetcher
 storage = Storage()
 
 
+def _start_bot_thread():
+    """Start the bot scan loop in a background thread."""
+    try:
+        from core.engine import BotEngine
+        print("[BOT] Starting bot engine...", flush=True)
+        engine = BotEngine(starting_capital=10_000.0)
+        asyncio.run(engine.run())
+    except Exception as e:
+        import traceback
+        print(f"[BOT] FATAL ERROR: {e}", flush=True)
+        traceback.print_exc()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await storage.init()
+    # Start bot thread when app starts
+    if os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("PORT"):
+        bot_thread = threading.Thread(target=_start_bot_thread, daemon=True, name="BotEngine")
+        bot_thread.start()
+        print("[SERVER] Bot thread started", flush=True)
     yield
 
 
