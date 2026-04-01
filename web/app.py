@@ -18,26 +18,28 @@ storage = Storage()
 
 
 def _start_bot_thread():
-    """Start the bot scan loop in a background thread."""
-    try:
-        from core.engine import BotEngine
-        print("[BOT] Starting bot engine...", flush=True)
-        engine = BotEngine(starting_capital=10_000.0)
-        asyncio.run(engine.run())
-    except Exception as e:
-        import traceback
-        print(f"[BOT] FATAL ERROR: {e}", flush=True)
-        traceback.print_exc()
+    """Start the bot scan loop in a background thread with auto-restart."""
+    import time
+    while True:
+        try:
+            from core.engine import BotEngine
+            print("[BOT] Starting bot engine...", flush=True)
+            engine = BotEngine(starting_capital=10_000.0)
+            asyncio.run(engine.run())
+        except Exception as e:
+            import traceback
+            print(f"[BOT] ERROR — restarting in 60s: {e}", flush=True)
+            traceback.print_exc()
+            time.sleep(60)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await storage.init()
     # Start bot thread when app starts
-    if os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("PORT"):
-        bot_thread = threading.Thread(target=_start_bot_thread, daemon=True, name="BotEngine")
-        bot_thread.start()
-        print("[SERVER] Bot thread started", flush=True)
+    bot_thread = threading.Thread(target=_start_bot_thread, daemon=True, name="BotEngine")
+    bot_thread.start()
+    print("[SERVER] Bot thread started", flush=True)
     yield
 
 
@@ -82,6 +84,7 @@ async def api_closed_trades():
     import aiosqlite
     from config.settings import settings
     async with aiosqlite.connect(settings.DB_PATH) as db:
+        await db.execute("PRAGMA busy_timeout=5000")
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM paper_trades WHERE resolved = 1 ORDER BY exited_at DESC"
@@ -95,6 +98,7 @@ async def api_all_trades():
     import aiosqlite
     from config.settings import settings
     async with aiosqlite.connect(settings.DB_PATH) as db:
+        await db.execute("PRAGMA busy_timeout=5000")
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM paper_trades ORDER BY entered_at DESC"
@@ -108,6 +112,7 @@ async def api_reasoning():
     import aiosqlite
     from config.settings import settings
     async with aiosqlite.connect(settings.DB_PATH) as db:
+        await db.execute("PRAGMA busy_timeout=5000")
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM reasoning_results ORDER BY reasoned_at DESC LIMIT 50"
