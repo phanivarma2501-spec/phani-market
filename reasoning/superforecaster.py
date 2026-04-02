@@ -335,7 +335,8 @@ class SuperForecaster:
         self,
         market: PolymarketMarket,
         news_items: List[NewsItem],
-        starting_capital: float = 10_000.0
+        starting_capital: float = 10_000.0,
+        extra_context: str = "",
     ) -> Optional[ReasoningResult]:
         """
         Core method: run structured superforecasting on one market.
@@ -343,6 +344,10 @@ class SuperForecaster:
         """
         base_rate, reference_class, base_rate_note = self._get_base_rate(market)
         news_context = self._format_news_context(news_items)
+
+        # Append cross-platform price data if available
+        if extra_context:
+            news_context = news_context + "\n" + extra_context
 
         prompt = SUPERFORECASTING_PROMPT.format(
             question=market.question,

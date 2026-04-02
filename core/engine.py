@@ -15,9 +15,11 @@ from loguru import logger
 from core.market_fetcher import MarketFetcher
 from core.models import PolymarketMarket, ReasoningResult, SignalStrength
 from data.news_fetcher import NewsFetcher
+from data.cross_platform import CrossPlatformFetcher
 from data.storage import Storage
 from reasoning.superforecaster import SuperForecaster
 from strategies.paper_trader import PaperTrader
+from strategies.correlation import CorrelationDetector
 from utils.alerts import TelegramAlerter
 from config.settings import settings
 
@@ -46,8 +48,10 @@ class BotEngine:
         self.storage = Storage()
         self.market_fetcher = MarketFetcher()
         self.news_fetcher = NewsFetcher()
+        self.cross_platform = CrossPlatformFetcher()
         self.superforecaster = SuperForecaster()
         self.paper_trader = PaperTrader(self.storage, starting_capital)
+        self.correlation = CorrelationDetector()
         self.alerter = TelegramAlerter()
 
         self._running = False
@@ -93,20 +97,45 @@ class BotEngine:
                         # Fetch news for this market
                         news = await self.news_fetcher.fetch_for_market(market)
 
-                        # Run structured reasoning
+                        # Fetch cross-platform prices (Metaculus + Kalshi)
+                        cross_data = await self.cross_platform.get_cross_platform_prices(
+                            market.question
+                        )
+                        cross_context = self.cross_platform.format_for_prompt(
+                            cross_data, market.yes_price
+                        )
+
+                        # Run structured reasoning (with cross-platform context)
                         result = await self.superforecaster.reason_about_market(
                             market, news,
-                            starting_capital=self.paper_trader.starting_capital
+                            starting_capital=self.paper_trader.starting_capital,
+                            extra_context=cross_context,
                         )
                         if not result:
                             return
 
                         # Save reasoning result
                         reasoning_id = await self.storage.save_reasoning(result)
-                        result_dict = result.dict()
+
+                        # Track for resolution (all signals, not just actionable)
+                        cross_prices_json = self.cross_platform.serialize(cross_data) if cross_data.get("has_cross_platform") else None
+                        await self.storage.track_market(
+                            result, market.domain.value, cross_prices_json
+                        )
 
                         # Paper trade if actionable
                         if result.signal in ALERT_SIGNALS:
+                            # Correlation check before trading
+                            open_positions = self.paper_trader._open_trades
+                            should_trade, corr_reason = self.correlation.check_before_trade(
+                                open_positions, market.question,
+                                result.suggested_position_usd,
+                                self.paper_trader.current_capital,
+                            )
+                            if not should_trade:
+                                logger.warning(f"Trade blocked by correlation: {corr_reason}")
+                                return
+
                             trade = await self.paper_trader.process_signal(result)
                             if trade:
                                 signals_this_cycle += 1
@@ -181,6 +210,7 @@ class BotEngine:
         self._running = False
         await self.market_fetcher.close()
         await self.news_fetcher.close()
+        await self.cross_platform.close()
         snapshot = await self.paper_trader.get_portfolio_snapshot()
         logger.info(f"Final state: {self.paper_trader.format_summary(snapshot)}")
 

@@ -96,12 +96,40 @@ class Storage:
                 )
             """)
             await db.execute("""
+                CREATE TABLE IF NOT EXISTS resolution_tracker (
+                    id TEXT PRIMARY KEY,
+                    market_condition_id TEXT NOT NULL,
+                    market_question TEXT NOT NULL,
+                    domain TEXT,
+                    our_probability REAL,
+                    market_probability REAL,
+                    edge REAL,
+                    confidence REAL,
+                    signal TEXT,
+                    flagged_at TEXT NOT NULL,
+                    resolution_status TEXT DEFAULT 'PENDING',
+                    resolution_outcome TEXT,
+                    resolved_at TEXT,
+                    was_correct INTEGER,
+                    prediction_error REAL,
+                    cross_platform_prices TEXT
+                )
+            """)
+            await db.execute("""
                 CREATE INDEX IF NOT EXISTS idx_reasoning_market
                 ON reasoning_results(market_condition_id)
             """)
             await db.execute("""
                 CREATE INDEX IF NOT EXISTS idx_trades_market
                 ON paper_trades(market_condition_id)
+            """)
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_resolution_market
+                ON resolution_tracker(market_condition_id)
+            """)
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_resolution_status
+                ON resolution_tracker(resolution_status)
             """)
             await db.commit()
         logger.info(f"Storage initialised at {self.db_path}")
@@ -238,6 +266,77 @@ class Storage:
             "total_pnl_usd": round(total_pnl, 2),
             "deployed_capital": round(deployed, 2),
             "avg_edge_on_wins": round(avg_edge, 4),
+        }
+
+    # ── Resolution Tracker ─────────────────────────────────────────────────
+
+    async def track_market(self, result: ReasoningResult, domain: str,
+                           cross_platform_prices: str = None) -> str:
+        """Log every flagged market for resolution tracking."""
+        tid = str(uuid.uuid4())
+        async with self._connect() as db:
+            # Skip if already tracked
+            async with db.execute(
+                "SELECT id FROM resolution_tracker WHERE market_condition_id = ? AND resolution_status = 'PENDING'",
+                (result.market_condition_id,)
+            ) as c:
+                if await c.fetchone():
+                    return ""
+            await db.execute("""
+                INSERT INTO resolution_tracker VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (
+                tid, result.market_condition_id, result.market_question,
+                domain, result.our_probability, result.market_probability,
+                result.edge, result.confidence, result.signal.value,
+                result.reasoned_at.isoformat(), "PENDING",
+                None, None, None, None, cross_platform_prices,
+            ))
+            await db.commit()
+        return tid
+
+    async def resolve_market(self, market_condition_id: str, outcome: str):
+        """Mark a tracked market as resolved and compute accuracy."""
+        async with self._connect() as db:
+            async with db.execute(
+                "SELECT id, our_probability FROM resolution_tracker WHERE market_condition_id = ? AND resolution_status = 'PENDING'",
+                (market_condition_id,)
+            ) as c:
+                row = await c.fetchone()
+            if not row:
+                return
+            tid = row[0]
+            our_prob = row[1]
+            actual = 1.0 if outcome == "YES" else 0.0
+            was_correct = 1 if (our_prob >= 0.5 and outcome == "YES") or (our_prob < 0.5 and outcome == "NO") else 0
+            prediction_error = abs(our_prob - actual)
+            now = datetime.utcnow().isoformat()
+            await db.execute("""
+                UPDATE resolution_tracker SET
+                    resolution_status='RESOLVED', resolution_outcome=?,
+                    resolved_at=?, was_correct=?, prediction_error=?
+                WHERE id=?
+            """, (outcome, now, was_correct, round(prediction_error, 4), tid))
+            await db.commit()
+
+    async def get_resolution_stats(self) -> dict:
+        """Get calibration stats from resolved markets."""
+        async with self._connect() as db:
+            db.row_factory = True
+            async with db.execute("SELECT COUNT(*) as total FROM resolution_tracker") as c:
+                total = (await c.fetchone())["total"]
+            async with db.execute("SELECT COUNT(*) as resolved FROM resolution_tracker WHERE resolution_status='RESOLVED'") as c:
+                resolved = (await c.fetchone())["resolved"]
+            async with db.execute("SELECT COUNT(*) as correct FROM resolution_tracker WHERE was_correct=1") as c:
+                correct = (await c.fetchone())["correct"]
+            async with db.execute("SELECT COALESCE(AVG(prediction_error), 0) as avg_err FROM resolution_tracker WHERE resolution_status='RESOLVED'") as c:
+                avg_err = (await c.fetchone())["avg_err"]
+            async with db.execute("SELECT COUNT(*) as pending FROM resolution_tracker WHERE resolution_status='PENDING'") as c:
+                pending = (await c.fetchone())["pending"]
+        accuracy = (correct / resolved) if resolved > 0 else 0.0
+        return {
+            "total_tracked": total, "resolved": resolved, "pending": pending,
+            "correct": correct, "accuracy": round(accuracy, 4),
+            "avg_prediction_error": round(avg_err, 4),
         }
 
     async def save_snapshot(self, snapshot: PortfolioSnapshot):
