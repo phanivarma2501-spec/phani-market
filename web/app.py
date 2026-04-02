@@ -85,44 +85,38 @@ async def api_trades():
 
 @app.get("/api/trades/closed")
 async def api_closed_trades():
-    import aiosqlite
+    from data.turso_client import connect
     from config.settings import settings
-    async with aiosqlite.connect(settings.DB_PATH) as db:
-        await db.execute("PRAGMA busy_timeout=5000")
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
+    async with connect(settings.DB_PATH) as db:
+        db.row_factory = True
+        cursor = await db.execute(
             "SELECT * FROM paper_trades WHERE resolved = 1 ORDER BY exited_at DESC"
-        ) as cursor:
-            rows = await cursor.fetchall()
-            return [dict(r) for r in rows]
+        )
+        return await cursor.fetchall()
 
 
 @app.get("/api/trades/all")
 async def api_all_trades():
-    import aiosqlite
+    from data.turso_client import connect
     from config.settings import settings
-    async with aiosqlite.connect(settings.DB_PATH) as db:
-        await db.execute("PRAGMA busy_timeout=5000")
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
+    async with connect(settings.DB_PATH) as db:
+        db.row_factory = True
+        cursor = await db.execute(
             "SELECT * FROM paper_trades ORDER BY entered_at DESC"
-        ) as cursor:
-            rows = await cursor.fetchall()
-            return [dict(r) for r in rows]
+        )
+        return await cursor.fetchall()
 
 
 @app.get("/api/reasoning")
 async def api_reasoning():
-    import aiosqlite
+    from data.turso_client import connect
     from config.settings import settings
-    async with aiosqlite.connect(settings.DB_PATH) as db:
-        await db.execute("PRAGMA busy_timeout=5000")
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
+    async with connect(settings.DB_PATH) as db:
+        db.row_factory = True
+        cursor = await db.execute(
             "SELECT * FROM reasoning_results ORDER BY reasoned_at DESC LIMIT 50"
-        ) as cursor:
-            rows = await cursor.fetchall()
-            return [dict(r) for r in rows]
+        )
+        return await cursor.fetchall()
 
 
 @app.get("/", response_class=HTMLResponse)

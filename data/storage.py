@@ -11,26 +11,22 @@ from datetime import datetime
 from typing import List, Optional
 from pathlib import Path
 from loguru import logger
-from contextlib import asynccontextmanager
 
 from core.models import ReasoningResult, PaperTrade, PortfolioSnapshot, SignalStrength, Domain
 from config.settings import settings
+from data.turso_client import connect as turso_connect
 
 
 class Storage:
-    """Async SQLite storage for all bot data."""
+    """Async storage — uses Turso cloud when configured, local SQLite otherwise."""
 
     def __init__(self, db_path: str = None):
         self.db_path = db_path or settings.DB_PATH
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
 
-    @asynccontextmanager
-    async def _connect(self):
-        """Create a connection with WAL mode and busy timeout for concurrent access."""
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.execute("PRAGMA journal_mode=WAL")
-            await db.execute("PRAGMA busy_timeout=5000")
-            yield db
+    def _connect(self):
+        """Connect to Turso (cloud) or local SQLite."""
+        return turso_connect(self.db_path)
 
     async def init(self):
         """Create all tables on first run."""
