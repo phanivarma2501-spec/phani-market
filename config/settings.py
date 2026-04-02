@@ -4,6 +4,7 @@ Central configuration for the Polymarket Phase 1 bot.
 Phase 1 = PAPER TRADING ONLY. No live trades executed.
 """
 
+import os
 from pydantic_settings import BaseSettings
 from pydantic import Field
 from typing import List, Optional
@@ -79,7 +80,7 @@ class PolymarketConfig(BaseSettings):
     NEWS_FETCH_INTERVAL_MINUTES: int = 10
 
     # --- Storage ---
-    DB_PATH: str = str(BASE_DIR / "data" / "polymarket_bot.db")
+    DB_PATH: str = "/app/data/polymarket_bot.db" if os.environ.get("RAILWAY_ENVIRONMENT") else str(BASE_DIR / "data" / "polymarket_bot.db")
     LOG_PATH: str = str(BASE_DIR / "logs" / "bot.log")
 
     class Config:
