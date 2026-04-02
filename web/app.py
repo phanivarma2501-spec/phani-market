@@ -20,16 +20,20 @@ storage = Storage()
 def _start_bot_thread():
     """Start the bot scan loop in a background thread with auto-restart."""
     import time
+    import traceback as tb
+    from loguru import logger as bot_logger
+    bot_logger.info("[BOT-THREAD] Thread function entered")
     while True:
         try:
             from core.engine import BotEngine
-            print("[BOT] Starting bot engine...", flush=True)
+            bot_logger.info("[BOT-THREAD] Starting bot engine...")
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             engine = BotEngine(starting_capital=10_000.0)
-            asyncio.run(engine.run())
-        except Exception as e:
-            import traceback
-            print(f"[BOT] ERROR — restarting in 60s: {e}", flush=True)
-            traceback.print_exc()
+            loop.run_until_complete(engine.run())
+        except BaseException as e:
+            bot_logger.error(f"[BOT-THREAD] ERROR — restarting in 60s: {type(e).__name__}: {e}")
+            tb.print_exc()
             time.sleep(60)
 
 

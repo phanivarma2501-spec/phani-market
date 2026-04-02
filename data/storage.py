@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import List, Optional
 from pathlib import Path
 from loguru import logger
+from contextlib import asynccontextmanager
 
 from core.models import ReasoningResult, PaperTrade, PortfolioSnapshot, SignalStrength, Domain
 from config.settings import settings
@@ -23,18 +24,17 @@ class Storage:
         self.db_path = db_path or settings.DB_PATH
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
 
+    @asynccontextmanager
     async def _connect(self):
         """Create a connection with WAL mode and busy timeout for concurrent access."""
-        db = await aiosqlite.connect(self.db_path)
-        await db.execute("PRAGMA journal_mode=WAL")
-        await db.execute("PRAGMA busy_timeout=5000")
-        return db
-
-    async def init(self):
-        """Create all tables on first run."""
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("PRAGMA journal_mode=WAL")
             await db.execute("PRAGMA busy_timeout=5000")
+            yield db
+
+    async def init(self):
+        """Create all tables on first run."""
+        async with self._connect() as db:
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS reasoning_results (
                     id TEXT PRIMARY KEY,
@@ -113,7 +113,7 @@ class Storage:
     async def save_reasoning(self, result: ReasoningResult) -> str:
         """Persist a reasoning result. Returns the generated ID."""
         rid = str(uuid.uuid4())
-        async with await self._connect() as db:
+        async with self._connect() as db:
             await db.execute("""
                 INSERT OR REPLACE INTO reasoning_results VALUES
                 (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
@@ -145,7 +145,7 @@ class Storage:
     async def save_paper_trade(self, trade: PaperTrade) -> str:
         """Record a paper trade. Returns ID."""
         tid = trade.id or str(uuid.uuid4())
-        async with await self._connect() as db:
+        async with self._connect() as db:
             await db.execute("""
                 INSERT OR REPLACE INTO paper_trades VALUES
                 (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
@@ -176,7 +176,7 @@ class Storage:
 
     async def get_open_trades(self) -> List[dict]:
         """Get all unresolved paper trades."""
-        async with await self._connect() as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 "SELECT * FROM paper_trades WHERE resolved = 0 ORDER BY entered_at DESC"
@@ -188,7 +188,7 @@ class Storage:
         self, market_condition_id: str, limit: int = 3
     ) -> List[dict]:
         """Get recent reasoning results for a market."""
-        async with await self._connect() as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 """SELECT * FROM reasoning_results
@@ -201,7 +201,7 @@ class Storage:
 
     async def get_performance_summary(self) -> dict:
         """Calculate live performance stats from paper trades."""
-        async with await self._connect() as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
 
             async with db.execute("SELECT COUNT(*) as total FROM paper_trades") as c:
@@ -246,7 +246,7 @@ class Storage:
 
     async def save_snapshot(self, snapshot: PortfolioSnapshot):
         """Save a portfolio snapshot."""
-        async with await self._connect() as db:
+        async with self._connect() as db:
             await db.execute("""
                 INSERT INTO portfolio_snapshots VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
             """, (
