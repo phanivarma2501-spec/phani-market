@@ -1,7 +1,7 @@
 """
 reasoning/superforecaster.py
 
-THE CORE DIFFERENTIATOR — Structured reasoning engine using Claude.
+THE CORE DIFFERENTIATOR — Structured reasoning engine using Gemini + Google Search.
 
 Every other bot asks an LLM: "What's the probability?"
 We do it properly: base rates → reference class → inside view →
@@ -12,7 +12,6 @@ AI reasoning pipeline. What makes us different from every open-source
 Polymarket bot that exists.
 """
 
-import anthropic
 import json
 import math
 from datetime import datetime, timedelta
@@ -32,7 +31,6 @@ def platt_scale(p: float, scale: float = 0.7) -> float:
     Recalibrate LLM probability estimates using Platt scaling.
     LLMs are systematically biased toward 0.5 due to RLHF training.
     This compresses extreme estimates toward the base rate.
-    From: Polymarket Signal Agent devpost research.
     """
     p = max(0.01, min(0.99, p))
     logit = math.log(p / (1 - p))
@@ -159,14 +157,17 @@ class SuperForecaster:
     """
     Structured reasoning engine — the core differentiator.
 
-    Uses Claude to perform 6-step Tetlock superforecasting,
-    producing calibrated probability estimates with confidence bands.
-    This is what no other Polymarket bot does properly.
+    Uses Gemini 2.5 Flash with Google Search grounding to perform
+    6-step Tetlock superforecasting, producing calibrated probability
+    estimates with confidence bands.
     """
 
     def __init__(self):
-        self.client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-        self.model = settings.REASONING_MODEL
+        from google import genai
+        from google.genai import types
+        self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        self.types = types
+        self.model = "gemini-2.5-flash"
 
     def _get_base_rate(
         self, market: PolymarketMarket
@@ -175,7 +176,6 @@ class SuperForecaster:
         question = market.question.lower()
         domain_rates = DOMAIN_BASE_RATES.get(market.domain, {})
 
-        # Crypto domain matching
         if market.domain == Domain.CRYPTO:
             if any(w in question for w in ["above", "reach", "hit", "over", "$", "price", "high"]):
                 rate, cls, note = domain_rates["price_up_30d"]
@@ -187,7 +187,6 @@ class SuperForecaster:
                 rate, cls, note = domain_rates["regulatory_action"]
                 return rate, cls, note
 
-        # Politics domain matching
         elif market.domain == Domain.POLITICS:
             if any(w in question for w in ["win", "elected", "defeat", "election", "vote"]):
                 rate, cls, note = domain_rates["incumbent_wins"]
@@ -196,7 +195,6 @@ class SuperForecaster:
                 rate, cls, note = domain_rates["policy_passed"]
                 return rate, cls, note
 
-        # Economics domain matching
         elif market.domain == Domain.ECONOMICS:
             if any(w in question for w in ["rate cut", "fed", "fomc", "bps", "basis point"]):
                 rate, cls, note = domain_rates["fed_rate_cut"]
@@ -211,7 +209,6 @@ class SuperForecaster:
                 rate, cls, note = domain_rates["gdp_beats"]
                 return rate, cls, note
 
-        # Fallback: use market price as prior
         return market.yes_price, "prediction_market_prior", \
                f"Using market implied probability as prior: {market.yes_price:.1%}"
 
@@ -246,24 +243,16 @@ class SuperForecaster:
         confidence: float,
         starting_capital: float = 10_000.0
     ) -> Tuple[float, float, float]:
-        """
-        Fractional Kelly sizing with confidence band scaling.
-        Handles both BUY (YES) and SELL (NO) directions.
-        Returns: (full_kelly, position_pct, position_usd)
-        """
-        # Determine direction: BUY YES or BUY NO
+        """Fractional Kelly sizing with confidence band scaling."""
         if our_prob > market_price:
-            # BUY YES: we think YES is underpriced
             bet_price = market_price
             p = our_prob
         elif our_prob < market_price:
-            # BUY NO: we think NO is underpriced (YES is overpriced)
             bet_price = 1.0 - market_price
             p = 1.0 - our_prob
         else:
             return 0.0, 0.0, 0.0
 
-        # Kelly formula: f = (bp - q) / b
         b = (1.0 / bet_price) - 1.0
         if b <= 0:
             return 0.0, 0.0, 0.0
@@ -271,7 +260,6 @@ class SuperForecaster:
         q = 1.0 - p
         full_kelly = max(0.0, (b * p - q) / b)
 
-        # Scale by confidence: only bet more when very confident
         conf_scaler = max(0.0, (confidence - 0.65) / (1.0 - 0.65))
         fractional = full_kelly * settings.KELLY_FRACTION * conf_scaler
 
@@ -293,14 +281,14 @@ class SuperForecaster:
 
         abs_edge = abs(edge)
 
-        if our_prob > market_price:  # BUY direction
+        if our_prob > market_price:
             if abs_edge >= settings.HIGH_CONFIDENCE_EDGE and confidence >= 0.75:
                 return SignalStrength.STRONG_BUY
             elif abs_edge >= settings.MIN_EDGE_TO_FLAG:
                 return SignalStrength.BUY
             else:
                 return SignalStrength.HOLD
-        else:  # SELL direction
+        else:
             if abs_edge >= settings.HIGH_CONFIDENCE_EDGE and confidence >= 0.75:
                 return SignalStrength.STRONG_SELL
             elif abs_edge >= settings.MIN_EDGE_TO_FLAG:
@@ -310,7 +298,6 @@ class SuperForecaster:
 
     def _parse_llm_response(self, raw_text: str) -> dict:
         """Parse JSON from LLM response, handling minor formatting issues."""
-        # Strip any accidental markdown fences
         text = raw_text.strip()
         if text.startswith("```"):
             text = text.split("```")[1]
@@ -321,7 +308,6 @@ class SuperForecaster:
         try:
             return json.loads(text)
         except json.JSONDecodeError as e:
-            # Try to find JSON object in response
             start = text.find("{")
             end = text.rfind("}") + 1
             if start >= 0 and end > start:
@@ -345,7 +331,6 @@ class SuperForecaster:
         base_rate, reference_class, base_rate_note = self._get_base_rate(market)
         news_context = self._format_news_context(news_items)
 
-        # Append cross-platform price data if available
         if extra_context:
             news_context = news_context + "\n" + extra_context
 
@@ -365,13 +350,19 @@ class SuperForecaster:
         try:
             logger.debug(f"Reasoning about: {market.question[:60]}...")
 
-            response = self.client.messages.create(
+            # Gemini with Google Search grounding for real-time information
+            response = self.client.models.generate_content(
                 model=self.model,
-                max_tokens=4096,
-                messages=[{"role": "user", "content": prompt}],
+                contents=prompt,
+                config=self.types.GenerateContentConfig(
+                    temperature=0.3,
+                    tools=[self.types.Tool(
+                        google_search=self.types.GoogleSearch()
+                    )],
+                ),
             )
 
-            raw_text = response.content[0].text
+            raw_text = response.text
             data = self._parse_llm_response(raw_text)
 
             # Extract core outputs
