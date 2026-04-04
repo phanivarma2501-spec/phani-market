@@ -91,6 +91,81 @@ async def api_trades():
     return trades
 
 
+@app.get("/api/trades/live")
+async def api_trades_live():
+    """Open trades with current Polymarket prices and unrealized P&L."""
+    import httpx
+    trades = await storage.get_open_trades()
+    if not trades:
+        return []
+
+    # Collect unique condition IDs
+    condition_ids = list({t["market_condition_id"] for t in trades})
+
+    # Fetch current prices from Gamma API
+    price_map = {}
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            for cid in condition_ids:
+                try:
+                    resp = await client.get(
+                        f"https://gamma-api.polymarket.com/markets",
+                        params={"conditionId": cid, "limit": 1},
+                    )
+                    if resp.status_code == 200:
+                        markets = resp.json()
+                        if markets:
+                            import json as _json
+                            raw_prices = markets[0].get("outcomePrices", "[]")
+                            raw_outcomes = markets[0].get("outcomes", "[]")
+                            if isinstance(raw_prices, str):
+                                raw_prices = _json.loads(raw_prices)
+                            if isinstance(raw_outcomes, str):
+                                raw_outcomes = _json.loads(raw_outcomes)
+                            for i, outcome in enumerate(raw_outcomes):
+                                if str(outcome).lower() in ("yes", "1") and i < len(raw_prices):
+                                    price_map[cid] = float(raw_prices[i])
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # Calculate unrealized P&L for each trade
+    total_unrealized = 0.0
+    for trade in trades:
+        cid = trade["market_condition_id"]
+        current_yes = price_map.get(cid)
+        entry = trade["entry_price"]
+        size = trade["size_usd"]
+        side = trade["side"]
+
+        if current_yes is not None:
+            # Current value of position
+            if side == "YES":
+                current_price = current_yes
+            else:
+                current_price = 1.0 - current_yes
+
+            # Shares = size / entry_price
+            shares = size / entry if entry > 0 else 0
+            current_value = shares * current_price
+            unrealized_pnl = current_value - size
+            unrealized_pct = (unrealized_pnl / size * 100) if size > 0 else 0
+
+            trade["current_yes_price"] = round(current_yes, 4)
+            trade["current_position_price"] = round(current_price, 4)
+            trade["unrealized_pnl_usd"] = round(unrealized_pnl, 2)
+            trade["unrealized_pnl_pct"] = round(unrealized_pct, 2)
+            total_unrealized += unrealized_pnl
+        else:
+            trade["current_yes_price"] = None
+            trade["current_position_price"] = None
+            trade["unrealized_pnl_usd"] = None
+            trade["unrealized_pnl_pct"] = None
+
+    return {"trades": trades, "total_unrealized_pnl": round(total_unrealized, 2)}
+
+
 @app.get("/api/trades/closed")
 async def api_closed_trades():
     from data.turso_client import connect
@@ -232,10 +307,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   </div>
 
   <div id="tab-open" class="table-wrap">
+    <div id="unrealizedBar" style="padding:10px 16px;background:#161b22;border-bottom:1px solid #21262d;font-size:13px;display:none;"></div>
     <table>
       <thead><tr>
         <th>#</th><th>Side</th><th>Signal</th><th>Market</th>
-        <th>Entry</th><th>Size</th><th>Our P</th><th>Market P</th><th>Edge</th><th>Conf</th><th>Opened</th>
+        <th>Entry</th><th>Current</th><th>Size</th><th>P&L</th><th>P&L%</th><th>Conf</th><th>Opened</th>
       </tr></thead>
       <tbody id="openBody"></tbody>
     </table>
@@ -296,22 +372,37 @@ async function loadPortfolio() {
 }
 
 async function loadOpenTrades() {
-  const res = await fetch('/api/trades');
-  const trades = await res.json();
+  const res = await fetch('/api/trades/live');
+  const data = await res.json();
+  const trades = data.trades || [];
+  const totalPnl = data.total_unrealized_pnl || 0;
   const tbody = document.getElementById('openBody');
-  tbody.innerHTML = trades.map((t, i) => `<tr>
+  const bar = document.getElementById('unrealizedBar');
+  if (!trades.length) {
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#8b949e;padding:30px;">No open positions</td></tr>';
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = 'flex';
+  bar.innerHTML = `<span>Unrealized P&L: <b style="color:${totalPnl>=0?'#3fb950':'#f85149'}">${totalPnl>=0?'+':''}${fmtUsd(Math.abs(totalPnl))}</b></span><span style="margin-left:16px;color:#8b949e;font-size:11px;">Live Polymarket prices | Updates every 30s</span>`;
+  tbody.innerHTML = trades.map((t, i) => {
+    const pnl = t.unrealized_pnl_usd;
+    const pnlPct = t.unrealized_pnl_pct;
+    const pnlColor = pnl != null ? (pnl >= 0 ? '#3fb950' : '#f85149') : '#8b949e';
+    const curPrice = t.current_position_price;
+    return `<tr>
     <td>${i + 1}</td>
     <td class="${t.side === 'YES' ? 'side-yes' : 'side-no'}">${t.side}</td>
     <td><span class="badge ${badgeClass(t.signal)}">${t.signal}</span></td>
-    <td title="${t.market_question}">${t.market_question.substring(0, 55)}</td>
+    <td title="${t.market_question}">${t.market_question.substring(0, 50)}</td>
     <td>${fmtPct(t.entry_price)}</td>
+    <td style="font-weight:600">${curPrice != null ? fmtPct(curPrice) : '-'}</td>
     <td>${fmtUsd(t.size_usd)}</td>
-    <td>${fmtPct(t.our_probability)}</td>
-    <td>${fmtPct(t.market_probability)}</td>
-    <td class="${t.edge >= 0 ? 'edge-pos' : 'edge-neg'}">${(t.edge >= 0 ? '+' : '') + fmtPct(t.edge)}</td>
+    <td style="color:${pnlColor};font-weight:600">${pnl != null ? (pnl >= 0 ? '+' : '') + fmtUsd(Math.abs(pnl)) : '-'}</td>
+    <td style="color:${pnlColor};font-size:11px">${pnlPct != null ? (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(1) + '%' : '-'}</td>
     <td>${fmtPct(t.confidence)}</td>
     <td>${fmtDate(t.entered_at)}</td>
-  </tr>`).join('');
+  </tr>`;}).join('');
 }
 
 async function loadClosedTrades() {
