@@ -40,6 +40,14 @@ def _start_bot_thread():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await storage.init()
+    # Verify Turso connection on Railway
+    is_railway = os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("PORT")
+    turso_url = os.environ.get("TURSO_DATABASE_URL", "")
+    if is_railway and not turso_url:
+        print("[FATAL] TURSO_DATABASE_URL not set on Railway! Bot will crash to prevent data loss.", flush=True)
+    elif turso_url:
+        perf = await storage.get_performance_summary()
+        print(f"[SERVER] Turso connected | Trades: {perf['total_trades']} | P&L: ${perf['total_pnl_usd']}", flush=True)
     # Start bot thread when app starts
     bot_thread = threading.Thread(target=_start_bot_thread, daemon=True, name="BotEngine")
     bot_thread.start()
