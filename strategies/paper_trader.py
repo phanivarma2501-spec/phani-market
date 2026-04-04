@@ -83,8 +83,8 @@ class PaperTrader:
         Returns USD amount to deploy (0 if limits exceeded).
         """
         # Hard check: never exceed total exposure limit
-        if self._current_exposure_pct() >= 0.40:
-            logger.warning("Total exposure at 40% limit — skipping position")
+        if self._current_exposure_pct() >= 1.00:
+            logger.warning("Total exposure at 100% limit — skipping position")
             return 0.0
 
         # Domain correlation check
