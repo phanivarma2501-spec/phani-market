@@ -20,7 +20,7 @@ class PolymarketConfig(BaseSettings):
     DATA_API_URL: str = "https://data-api.polymarket.com"
 
     # --- Gemini (for reasoning engine) ---
-    GEMINI_API_KEY: str = Field(default="AIzaSyCLIzUocTlRCqRmMIyWZYatdEXW0l-MYDQ", env="GEMINI_API_KEY")
+    GEMINI_API_KEY: str = Field(default="", env="GEMINI_API_KEY")
 
     # --- Telegram alerts ---
     TELEGRAM_BOT_TOKEN: Optional[str] = Field(None, env="TELEGRAM_BOT_TOKEN")
