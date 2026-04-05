@@ -4,6 +4,10 @@ AGENT 1: Research Agent (DeepSeek V3)
 
 Synthesizes news, cross-platform prices, and market context into
 a structured research brief for the Reasoning Agent.
+
+Prompt split for prefix caching:
+  SYSTEM_PROMPT (static, cached) — role + output format + rules
+  USER_TEMPLATE (variable) — market data + news + cross-platform
 """
 
 from typing import List, Optional
@@ -14,10 +18,32 @@ from core.models import PolymarketMarket, NewsItem
 from config.settings import settings
 
 
-RESEARCH_PROMPT = """You are a research analyst preparing a brief for a prediction market forecaster.
+# Static instructions — CACHED by DeepSeek across all calls
+SYSTEM_PROMPT = """You are a research analyst preparing a brief for a prediction market forecaster.
 Synthesize all available information into a structured research report.
 
-## Market
+Respond ONLY with valid JSON:
+{
+  "key_facts": ["<fact 1>", "<fact 2>", ...],
+  "bullish_factors": ["<factor pushing YES higher>", ...],
+  "bearish_factors": ["<factor pushing YES lower>", ...],
+  "information_quality": "high" or "medium" or "low",
+  "recency_score": 0.0-1.0,
+  "news_sentiment": "strongly_bullish" or "bullish" or "neutral" or "bearish" or "strongly_bearish",
+  "cross_platform_consensus": "<what other platforms suggest, or 'no data'>",
+  "key_uncertainties": ["<uncertainty 1>", "<uncertainty 2>"],
+  "research_summary": "<2-3 sentence synthesis of all evidence>"
+}
+
+Rules:
+- Focus on FACTS, not opinions
+- Flag conflicting information explicitly
+- Rate information quality honestly (low if mostly stale/irrelevant news)
+- Recency score: 1.0 = breaking news today, 0.5 = news this week, 0.0 = no recent news
+- If news is scarce, say so clearly — don't fabricate context"""
+
+# Variable data — changes every call
+USER_TEMPLATE = """## Market
 Question: {question}
 Description: {description}
 Domain: {domain}
@@ -29,34 +55,11 @@ Current market price (YES): {market_price:.1%}
 {news_context}
 
 ## Cross-Platform Prices
-{cross_platform_context}
-
-Respond ONLY with valid JSON:
-{{
-  "key_facts": ["<fact 1>", "<fact 2>", ...],
-  "bullish_factors": ["<factor pushing YES higher>", ...],
-  "bearish_factors": ["<factor pushing YES lower>", ...],
-  "information_quality": "high" or "medium" or "low",
-  "recency_score": 0.0-1.0,
-  "news_sentiment": "strongly_bullish" or "bullish" or "neutral" or "bearish" or "strongly_bearish",
-  "cross_platform_consensus": "<what other platforms suggest, or 'no data'>",
-  "key_uncertainties": ["<uncertainty 1>", "<uncertainty 2>"],
-  "research_summary": "<2-3 sentence synthesis of all evidence>"
-}}
-
-Rules:
-- Focus on FACTS, not opinions
-- Flag conflicting information explicitly
-- Rate information quality honestly (low if mostly stale/irrelevant news)
-- Recency score: 1.0 = breaking news today, 0.5 = news this week, 0.0 = no recent news
-- If news is scarce, say so clearly — don't fabricate context"""
+{cross_platform_context}"""
 
 
 class ResearchAgent:
-    """
-    Agent 1: Gathers and synthesizes all available information
-    into a structured research brief.
-    """
+    """Agent 1: Gathers and synthesizes all available information."""
 
     def __init__(self):
         self.model = settings.RESEARCH_MODEL
@@ -89,13 +92,9 @@ class ResearchAgent:
         news_items: List[NewsItem],
         cross_platform_context: str = "",
     ) -> dict:
-        """
-        Run the Research Agent.
-        Returns a structured research brief dict.
-        """
         news_context = self._format_news(news_items)
 
-        prompt = RESEARCH_PROMPT.format(
+        user_msg = USER_TEMPLATE.format(
             question=market.question,
             description=(market.description or "")[:400],
             domain=market.domain.value,
@@ -109,7 +108,8 @@ class ResearchAgent:
         try:
             result = call_llm_json(
                 model=self.model,
-                prompt=prompt,
+                prompt=user_msg,
+                system_prompt=SYSTEM_PROMPT,
                 max_tokens=1000,
                 temperature=0.2,
             )

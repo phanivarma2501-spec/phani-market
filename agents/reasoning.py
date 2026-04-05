@@ -1,9 +1,12 @@
 """
 agents/reasoning.py
-AGENT 2: Reasoning Agent (DeepSeek R1)
+AGENT 2: Reasoning Agent (DeepSeek V3/R1)
 
 Performs structured Tetlock superforecasting using the research brief.
-Uses DeepSeek R1 for deep chain-of-thought reasoning.
+
+Prompt split for prefix caching:
+  SYSTEM_PROMPT (static, cached) — methodology + output format + rules
+  USER_TEMPLATE (variable) — market data + research brief
 """
 
 import math
@@ -55,10 +58,36 @@ BASE_RATE_KEYWORDS = {
 }
 
 
-REASONING_PROMPT = """You are an expert superforecaster applying the Tetlock methodology.
+# Static instructions — CACHED by DeepSeek across all calls
+SYSTEM_PROMPT = """You are an expert superforecaster applying the Tetlock methodology.
 A Research Agent has prepared a brief. Use it to estimate the probability this market resolves YES.
 
-## Market
+Apply the 6 superforecasting steps. Think deeply about each step.
+Respond ONLY with valid JSON:
+
+{
+  "steps": [
+    {"step": "reference_class", "analysis": "<what similar events resolved YES historically?>", "probability": <0.0-1.0>},
+    {"step": "base_rate", "analysis": "<how does the base rate apply here?>", "probability": <0.0-1.0>},
+    {"step": "inside_view", "analysis": "<case-specific factors from the research brief>", "probability": <0.0-1.0>},
+    {"step": "outside_view", "analysis": "<systemic biases, market dynamics, timing>", "probability": <0.0-1.0>},
+    {"step": "news_adjustment", "analysis": "<how recent news shifts the estimate>", "probability": <0.0-1.0>},
+    {"step": "synthesis", "analysis": "<weighting rationale and final reasoning>", "probability": <0.0-1.0>}
+  ],
+  "final_probability": <0.0-1.0>,
+  "confidence": <0.0-1.0>,
+  "key_drivers": ["<top 3 factors driving this estimate>"],
+  "assumptions": ["<critical assumptions that could be wrong>"]
+}
+
+Rules:
+- Be precise: 0.43 not 0.50 unless genuinely uncertain
+- Do NOT anchor to market price. Form your estimate independently.
+- Confidence >= 0.75 = strong evidence. < 0.65 = insufficient.
+- If research quality is low, reduce confidence accordingly."""
+
+# Variable data — changes every call
+USER_TEMPLATE = """## Market
 Question: {question}
 Current market price: {market_price:.1%}
 Days until resolution: {days_to_resolution}
@@ -76,32 +105,7 @@ News sentiment: {news_sentiment}
 Information quality: {info_quality}
 Cross-platform: {cross_platform}
 Key uncertainties: {uncertainties}
-Summary: {research_summary}
-
-## Instructions
-Apply the 6 superforecasting steps. Think deeply about each step.
-Respond ONLY with valid JSON:
-
-{{
-  "steps": [
-    {{"step": "reference_class", "analysis": "<what similar events resolved YES historically?>", "probability": <0.0-1.0>}},
-    {{"step": "base_rate", "analysis": "<how does the base rate apply here?>", "probability": <0.0-1.0>}},
-    {{"step": "inside_view", "analysis": "<case-specific factors from the research brief>", "probability": <0.0-1.0>}},
-    {{"step": "outside_view", "analysis": "<systemic biases, market dynamics, timing>", "probability": <0.0-1.0>}},
-    {{"step": "news_adjustment", "analysis": "<how recent news shifts the estimate>", "probability": <0.0-1.0>}},
-    {{"step": "synthesis", "analysis": "<weighting rationale and final reasoning>", "probability": <0.0-1.0>}}
-  ],
-  "final_probability": <0.0-1.0>,
-  "confidence": <0.0-1.0>,
-  "key_drivers": ["<top 3 factors driving this estimate>"],
-  "assumptions": ["<critical assumptions that could be wrong>"]
-}}
-
-Rules:
-- Be precise: 0.43 not 0.50 unless genuinely uncertain
-- Do NOT anchor to market price. Form your estimate independently.
-- Confidence >= 0.75 = strong evidence. < 0.65 = insufficient.
-- If research quality is low, reduce confidence accordingly."""
+Summary: {research_summary}"""
 
 
 def platt_scale(p: float, scale: float = 0.7) -> float:
@@ -112,10 +116,7 @@ def platt_scale(p: float, scale: float = 0.7) -> float:
 
 
 class ReasoningAgent:
-    """
-    Agent 2: Deep probability estimation using Tetlock methodology.
-    Uses DeepSeek R1 for chain-of-thought reasoning.
-    """
+    """Agent 2: Deep probability estimation using Tetlock methodology."""
 
     def __init__(self):
         self.model = settings.REASONING_MODEL
@@ -133,18 +134,10 @@ class ReasoningAgent:
         rate, note = domain_rates.get("default", (0.50, "Using market prior"))
         return rate, note
 
-    async def run(
-        self,
-        market: PolymarketMarket,
-        research_brief: dict,
-    ) -> dict:
-        """
-        Run the Reasoning Agent.
-        Returns probability estimate with full reasoning chain.
-        """
+    async def run(self, market: PolymarketMarket, research_brief: dict) -> dict:
         base_rate, base_rate_note = self._get_base_rate(market)
 
-        prompt = REASONING_PROMPT.format(
+        user_msg = USER_TEMPLATE.format(
             question=market.question,
             market_price=market.yes_price,
             days_to_resolution=market.days_to_resolution or "unknown",
@@ -164,7 +157,8 @@ class ReasoningAgent:
         try:
             data = call_llm_json(
                 model=self.model,
-                prompt=prompt,
+                prompt=user_msg,
+                system_prompt=SYSTEM_PROMPT,
                 max_tokens=2000,
                 temperature=0.2,
             )

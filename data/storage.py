@@ -321,7 +321,7 @@ class Storage:
     async def get_resolution_stats(self) -> dict:
         """Get calibration stats from resolved markets."""
         async with self._connect() as db:
-            db.row_factory = True
+            db.row_factory = aiosqlite.Row
             async with db.execute("SELECT COUNT(*) as total FROM resolution_tracker") as c:
                 total = (await c.fetchone())["total"]
             async with db.execute("SELECT COUNT(*) as resolved FROM resolution_tracker WHERE resolution_status='RESOLVED'") as c:
@@ -337,6 +337,134 @@ class Storage:
             "total_tracked": total, "resolved": resolved, "pending": pending,
             "correct": correct, "accuracy": round(accuracy, 4),
             "avg_prediction_error": round(avg_err, 4),
+        }
+
+    async def get_calibration_report(self) -> dict:
+        """
+        Generate detailed calibration report with per-category breakdown,
+        Brier scores, and overconfidence/underconfidence analysis.
+        """
+        async with self._connect() as db:
+            db.row_factory = aiosqlite.Row
+
+            # Overall stats
+            async with db.execute("""
+                SELECT COUNT(*) as total,
+                       COALESCE(SUM(was_correct), 0) as correct,
+                       COALESCE(AVG(prediction_error), 0) as avg_error
+                FROM resolution_tracker WHERE resolution_status='RESOLVED'
+            """) as c:
+                overall = dict(await c.fetchone())
+
+            # Brier score: mean of (predicted - actual)^2
+            async with db.execute("""
+                SELECT COALESCE(AVG(
+                    (our_probability - CASE WHEN resolution_outcome='YES' THEN 1.0 ELSE 0.0 END)
+                    * (our_probability - CASE WHEN resolution_outcome='YES' THEN 1.0 ELSE 0.0 END)
+                ), 0) as brier_score
+                FROM resolution_tracker WHERE resolution_status='RESOLVED'
+            """) as c:
+                brier = (await c.fetchone())["brier_score"]
+
+            # Per-domain breakdown
+            async with db.execute("""
+                SELECT domain,
+                       COUNT(*) as total,
+                       SUM(was_correct) as correct,
+                       AVG(prediction_error) as avg_error,
+                       AVG((our_probability - CASE WHEN resolution_outcome='YES' THEN 1.0 ELSE 0.0 END)
+                           * (our_probability - CASE WHEN resolution_outcome='YES' THEN 1.0 ELSE 0.0 END)
+                       ) as brier_score
+                FROM resolution_tracker
+                WHERE resolution_status='RESOLVED'
+                GROUP BY domain
+                ORDER BY total DESC
+            """) as c:
+                categories = [dict(r) for r in await c.fetchall()]
+
+            # Overconfidence analysis: predictions in [0.7, 1.0] that resolved NO,
+            # and predictions in [0.0, 0.3] that resolved YES
+            async with db.execute("""
+                SELECT
+                    SUM(CASE WHEN our_probability >= 0.7 AND resolution_outcome='NO' THEN 1 ELSE 0 END) as overconfident_yes,
+                    SUM(CASE WHEN our_probability <= 0.3 AND resolution_outcome='YES' THEN 1 ELSE 0 END) as overconfident_no,
+                    SUM(CASE WHEN our_probability >= 0.7 THEN 1 ELSE 0 END) as total_high_conf,
+                    SUM(CASE WHEN our_probability <= 0.3 THEN 1 ELSE 0 END) as total_low_conf
+                FROM resolution_tracker WHERE resolution_status='RESOLVED'
+            """) as c:
+                conf_data = dict(await c.fetchone())
+
+            # Calibration buckets: group predictions into 10% bands
+            async with db.execute("""
+                SELECT
+                    CAST(our_probability * 10 AS INTEGER) as bucket,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN resolution_outcome='YES' THEN 1 ELSE 0 END) as actual_yes
+                FROM resolution_tracker
+                WHERE resolution_status='RESOLVED'
+                GROUP BY CAST(our_probability * 10 AS INTEGER)
+                ORDER BY bucket
+            """) as c:
+                buckets = [dict(r) for r in await c.fetchall()]
+
+            # Pending count
+            async with db.execute(
+                "SELECT COUNT(*) as pending FROM resolution_tracker WHERE resolution_status='PENDING'"
+            ) as c:
+                pending = (await c.fetchone())["pending"]
+
+        # Process calibration buckets
+        calibration_curve = []
+        for b in buckets:
+            bucket_start = b["bucket"] / 10.0
+            bucket_end = bucket_start + 0.1
+            predicted_avg = (bucket_start + bucket_end) / 2
+            actual_rate = b["actual_yes"] / b["total"] if b["total"] > 0 else 0
+            calibration_curve.append({
+                "range": f"{bucket_start:.0%}-{bucket_end:.0%}",
+                "predicted": round(predicted_avg, 2),
+                "actual": round(actual_rate, 4),
+                "count": b["total"],
+                "gap": round(actual_rate - predicted_avg, 4),
+            })
+
+        # Determine bias
+        total_high = conf_data.get("total_high_conf") or 0
+        total_low = conf_data.get("total_low_conf") or 0
+        overconf_yes = conf_data.get("overconfident_yes") or 0
+        overconf_no = conf_data.get("overconfident_no") or 0
+
+        if total_high > 0 and (overconf_yes / total_high) > 0.4:
+            bias = "overconfident"
+        elif total_low > 0 and (overconf_no / total_low) > 0.4:
+            bias = "underconfident"
+        else:
+            bias = "well_calibrated"
+
+        # Best/worst categories
+        sorted_cats = sorted(categories, key=lambda x: x.get("brier_score", 1))
+        best = sorted_cats[0]["domain"] if sorted_cats else "n/a"
+        worst = sorted_cats[-1]["domain"] if sorted_cats else "n/a"
+
+        resolved_total = overall.get("total", 0)
+        correct_total = overall.get("correct", 0)
+
+        return {
+            "resolved": resolved_total,
+            "pending": pending,
+            "accuracy": round(correct_total / resolved_total, 4) if resolved_total > 0 else 0,
+            "brier_score": round(brier, 4),
+            "bias": bias,
+            "best_category": best,
+            "worst_category": worst,
+            "categories": categories,
+            "calibration_curve": calibration_curve,
+            "overconfidence_data": {
+                "high_conf_wrong": overconf_yes,
+                "high_conf_total": total_high,
+                "low_conf_wrong": overconf_no,
+                "low_conf_total": total_low,
+            },
         }
 
     async def save_snapshot(self, snapshot: PortfolioSnapshot):

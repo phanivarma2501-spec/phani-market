@@ -4,6 +4,10 @@ AGENT 5: Decision Agent (DeepSeek V3)
 
 Final arbiter. Synthesizes all 4 agent outputs into a single
 actionable decision: BUY, SELL, or HOLD with exact sizing.
+
+Prompt split for prefix caching:
+  SYSTEM_PROMPT (static, cached) — decision role + output format + rules
+  USER_TEMPLATE (variable) — all agent outputs for this market
 """
 
 from loguru import logger
@@ -13,10 +17,34 @@ from core.models import PolymarketMarket, SignalStrength
 from config.settings import settings
 
 
-DECISION_PROMPT = """You are the final decision-maker for a prediction market trading bot.
+# Static instructions — CACHED by DeepSeek across all calls
+SYSTEM_PROMPT = """You are the final decision-maker for a prediction market trading bot.
 Four specialist agents have analyzed this market. Synthesize their outputs into ONE decision.
 
-## Market
+Respond ONLY with valid JSON:
+{
+  "decision": "STRONG_BUY" or "BUY" or "HOLD" or "SELL" or "STRONG_SELL",
+  "final_probability": <0.0-1.0>,
+  "final_confidence": <0.0-1.0>,
+  "position_size_usd": <number or 0 if HOLD>,
+  "side": "YES" or "NO" or "NONE",
+  "reasoning": "<2-3 sentence explanation of WHY this decision>",
+  "agent_agreement": "unanimous" or "majority" or "split" or "override",
+  "overrode_risk_agent": <true or false>
+}
+
+Rules:
+- If Risk Agent blocked the trade, you should almost always HOLD (override only with extraordinary edge >20%)
+- If Devil's Advocate found significant overconfidence, reduce confidence
+- Apply DA's probability adjustment to the reasoning estimate
+- Edge < 6% absolute -> HOLD regardless
+- Confidence < 0.65 after adjustments -> HOLD
+- If agents disagree strongly, prefer HOLD (uncertainty = no bet)
+- NEVER override risk limits for a mediocre edge
+- position_size_usd should be 0 for HOLD decisions"""
+
+# Variable data — changes every call
+USER_TEMPLATE = """## Market
 Question: {question}
 Market price: {market_price:.1%}
 Days to resolution: {days_to_resolution}
@@ -43,38 +71,11 @@ Kelly direction: {kelly_direction} | Kelly size: ${kelly_usd:.2f} ({kelly_pct:.2
 Correlation: {correlation_status} — {correlation_reason}
 Portfolio: {deployed_pct:.0%} deployed, {position_count} open positions
 Risk approved: {risk_approved}
-{risk_block_reasons}
-
-## Your Decision
-Weigh all agents and make the final call. Respond ONLY with valid JSON:
-
-{{
-  "decision": "STRONG_BUY" or "BUY" or "HOLD" or "SELL" or "STRONG_SELL",
-  "final_probability": <0.0-1.0>,
-  "final_confidence": <0.0-1.0>,
-  "position_size_usd": <number or 0 if HOLD>,
-  "side": "YES" or "NO" or "NONE",
-  "reasoning": "<2-3 sentence explanation of WHY this decision>",
-  "agent_agreement": "unanimous" or "majority" or "split" or "override",
-  "overrode_risk_agent": <true or false>
-}}
-
-Rules:
-- If Risk Agent blocked the trade, you should almost always HOLD (override only with extraordinary edge >20%)
-- If Devil's Advocate found significant overconfidence, reduce confidence
-- Apply DA's probability adjustment to the reasoning estimate
-- Edge < 6% absolute -> HOLD regardless
-- Confidence < 0.65 after adjustments -> HOLD
-- If agents disagree strongly, prefer HOLD (uncertainty = no bet)
-- NEVER override risk limits for a mediocre edge
-- position_size_usd should be 0 for HOLD decisions"""
+{risk_block_reasons}"""
 
 
 class DecisionAgent:
-    """
-    Agent 5: Final decision synthesizer.
-    Takes all agent outputs, makes the actionable call.
-    """
+    """Agent 5: Final decision synthesizer."""
 
     def __init__(self):
         self.model = settings.DECISION_MODEL
@@ -87,9 +88,6 @@ class DecisionAgent:
         da_output: dict,
         risk_output: dict,
     ) -> dict:
-        """
-        Run the Decision Agent. Synthesizes all outputs into final decision.
-        """
         kelly = risk_output.get("kelly", {})
         portfolio = risk_output.get("portfolio", {})
         correlation = risk_output.get("correlation", {})
@@ -103,7 +101,7 @@ class DecisionAgent:
         if risk_output.get("block_reasons"):
             block_reasons_str = "BLOCKED: " + "; ".join(risk_output["block_reasons"])
 
-        prompt = DECISION_PROMPT.format(
+        user_msg = USER_TEMPLATE.format(
             question=market.question,
             market_price=market.yes_price,
             days_to_resolution=market.days_to_resolution or "unknown",
@@ -134,7 +132,8 @@ class DecisionAgent:
         try:
             data = call_llm_json(
                 model=self.model,
-                prompt=prompt,
+                prompt=user_msg,
+                system_prompt=SYSTEM_PROMPT,
                 max_tokens=800,
                 temperature=0.2,
             )
@@ -168,7 +167,6 @@ class DecisionAgent:
 
         except Exception as e:
             logger.error(f"Decision Agent failed for '{market.question[:50]}': {e}")
-            # Safe fallback: HOLD
             return {
                 "agent": "decision",
                 "signal": SignalStrength.HOLD,

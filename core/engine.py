@@ -163,6 +163,20 @@ class BotEngine:
         self._signals_today = 0
         self._errors_today = 0
 
+    async def run_weekly_calibration(self):
+        """Send weekly calibration report."""
+        try:
+            report = await self.storage.get_calibration_report()
+            await self.alerter.weekly_calibration_alert(report)
+            logger.info(
+                f"Weekly calibration: {report.get('resolved', 0)} resolved, "
+                f"accuracy={report.get('accuracy', 0):.1%}, "
+                f"Brier={report.get('brier_score', 0):.3f}, "
+                f"bias={report.get('bias', 'unknown')}"
+            )
+        except Exception as e:
+            logger.error(f"Weekly calibration report failed: {e}")
+
     async def run(self):
         """Main run loop with scheduling."""
         self._running = True
@@ -179,15 +193,23 @@ class BotEngine:
 
         scan_interval = settings.MARKET_SCAN_INTERVAL_MINUTES * 60
         last_daily = datetime.utcnow().date()
+        last_weekly = datetime.utcnow().isocalendar()[1]  # ISO week number
 
         while self._running:
             await self.run_scan_cycle()
 
+            today = datetime.utcnow()
+
             # Daily summary at midnight UTC
-            today = datetime.utcnow().date()
-            if today != last_daily:
+            if today.date() != last_daily:
                 await self.run_daily_summary()
-                last_daily = today
+                last_daily = today.date()
+
+            # Weekly calibration on Sundays (new ISO week)
+            current_week = today.isocalendar()[1]
+            if current_week != last_weekly:
+                await self.run_weekly_calibration()
+                last_weekly = current_week
 
             if self._running:
                 logger.info(f"Next scan in {settings.MARKET_SCAN_INTERVAL_MINUTES} minutes...")

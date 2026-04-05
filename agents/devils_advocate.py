@@ -1,9 +1,13 @@
 """
 agents/devils_advocate.py
-AGENT 3: Devil's Advocate Agent (DeepSeek R1)
+AGENT 3: Devil's Advocate Agent (DeepSeek V3/R1)
 
 Challenges the Reasoning Agent's conclusions. Looks for blind spots,
-overconfidence, and unconsidered scenarios. May adjust the probability.
+overconfidence, and unconsidered scenarios.
+
+Prompt split for prefix caching:
+  SYSTEM_PROMPT (static, cached) — adversarial role + output format + rules
+  USER_TEMPLATE (variable) — forecaster output + research context
 """
 
 from loguru import logger
@@ -13,10 +17,40 @@ from core.models import PolymarketMarket
 from config.settings import settings
 
 
-DEVILS_ADVOCATE_PROMPT = """You are a Devil's Advocate analyst whose job is to CHALLENGE a forecaster's probability estimate.
+# Static instructions — CACHED by DeepSeek across all calls
+SYSTEM_PROMPT = """You are a Devil's Advocate analyst whose job is to CHALLENGE a forecaster's probability estimate.
 Your goal: find blind spots, overconfidence, and unconsidered scenarios.
 
-## Market
+Consider:
+1. What if the key assumptions are WRONG?
+2. What scenarios has the forecaster NOT considered?
+3. Is the confidence level justified by the evidence quality?
+4. Are there tail risks or black swan events being ignored?
+5. Is the forecaster anchoring too much to the base rate or news?
+6. Could resolution criteria be ambiguous?
+
+Respond ONLY with valid JSON:
+{
+  "challenges": [
+    {"challenge": "<specific challenge>", "severity": "high" or "medium" or "low", "impact_on_probability": <-0.3 to +0.3>}
+  ],
+  "blind_spots": ["<unconsidered factor 1>"],
+  "overconfidence_assessment": "justified" or "slightly_overconfident" or "significantly_overconfident" or "underconfident",
+  "suggested_confidence_adjustment": <-0.3 to +0.1>,
+  "suggested_probability_adjustment": <-0.2 to +0.2>,
+  "worst_case_scenario": "<what could make this estimate completely wrong?>",
+  "dissent_summary": "<1-2 sentence summary of your strongest objection>"
+}
+
+Rules:
+- Be genuinely adversarial — don't rubber-stamp the estimate
+- At least ONE challenge must be severity "high"
+- If info quality is "low", overconfidence assessment should be "slightly" or "significantly" overconfident
+- Probability adjustments should be proportional to evidence strength
+- If the estimate seems well-reasoned, say so but still find challenges"""
+
+# Variable data — changes every call
+USER_TEMPLATE = """## Market
 Question: {question}
 Market price: {market_price:.1%}
 Days until resolution: {days_to_resolution}
@@ -31,44 +65,11 @@ Reasoning steps summary: {reasoning_summary}
 ## Research Brief
 News sentiment: {news_sentiment}
 Information quality: {info_quality}
-Key uncertainties: {uncertainties}
-
-## Your Task
-Aggressively challenge this estimate. Consider:
-1. What if the key assumptions are WRONG?
-2. What scenarios has the forecaster NOT considered?
-3. Is the confidence level justified by the evidence quality?
-4. Are there tail risks or black swan events being ignored?
-5. Is the forecaster anchoring too much to the base rate or news?
-6. Could resolution criteria be ambiguous?
-
-Respond ONLY with valid JSON:
-{{
-  "challenges": [
-    {{"challenge": "<specific challenge>", "severity": "high" or "medium" or "low", "impact_on_probability": <-0.3 to +0.3>}},
-    ...
-  ],
-  "blind_spots": ["<unconsidered factor 1>", ...],
-  "overconfidence_assessment": "justified" or "slightly_overconfident" or "significantly_overconfident" or "underconfident",
-  "suggested_confidence_adjustment": <-0.3 to +0.1>,
-  "suggested_probability_adjustment": <-0.2 to +0.2>,
-  "worst_case_scenario": "<what could make this estimate completely wrong?>",
-  "dissent_summary": "<1-2 sentence summary of your strongest objection>"
-}}
-
-Rules:
-- Be genuinely adversarial — don't rubber-stamp the estimate
-- At least ONE challenge must be severity "high"
-- If info quality is "low", overconfidence assessment should be "slightly" or "significantly" overconfident
-- Probability adjustments should be proportional to evidence strength
-- If the estimate seems well-reasoned, say so but still find challenges"""
+Key uncertainties: {uncertainties}"""
 
 
 class DevilsAdvocateAgent:
-    """
-    Agent 3: Challenges the reasoning agent's conclusions.
-    Uses DeepSeek R1 for deep adversarial reasoning.
-    """
+    """Agent 3: Challenges the reasoning agent's conclusions."""
 
     def __init__(self):
         self.model = settings.DEVILS_ADVOCATE_MODEL
@@ -79,18 +80,13 @@ class DevilsAdvocateAgent:
         reasoning_output: dict,
         research_brief: dict,
     ) -> dict:
-        """
-        Run the Devil's Advocate Agent.
-        Returns challenges and suggested adjustments.
-        """
-        # Summarize reasoning steps
         steps = reasoning_output.get("steps", [])
         reasoning_summary = "; ".join(
             f"{s.get('step', 'unknown')}: {s.get('analysis', '')[:100]}"
             for s in steps[:4]
         )
 
-        prompt = DEVILS_ADVOCATE_PROMPT.format(
+        user_msg = USER_TEMPLATE.format(
             question=market.question,
             market_price=market.yes_price,
             days_to_resolution=market.days_to_resolution or "unknown",
@@ -107,7 +103,8 @@ class DevilsAdvocateAgent:
         try:
             data = call_llm_json(
                 model=self.model,
-                prompt=prompt,
+                prompt=user_msg,
+                system_prompt=SYSTEM_PROMPT,
                 max_tokens=1500,
                 temperature=0.4,
             )
@@ -123,7 +120,6 @@ class DevilsAdvocateAgent:
                 "dissent_summary": data.get("dissent_summary", ""),
             }
 
-            # Count high-severity challenges
             high_challenges = sum(
                 1 for c in result["challenges"]
                 if c.get("severity") == "high"
@@ -139,7 +135,6 @@ class DevilsAdvocateAgent:
 
         except Exception as e:
             logger.error(f"Devil's Advocate failed for '{market.question[:50]}': {e}")
-            # Conservative fallback: flag as potentially overconfident
             return {
                 "agent": "devils_advocate",
                 "challenges": [{"challenge": "DA agent failed - treat with extra caution", "severity": "high", "impact_on_probability": 0}],
@@ -147,6 +142,6 @@ class DevilsAdvocateAgent:
                 "overconfidence_assessment": "slightly_overconfident",
                 "suggested_confidence_adjustment": -0.1,
                 "suggested_probability_adjustment": 0.0,
-                "worst_case_scenario": "Unknown — DA analysis failed",
+                "worst_case_scenario": "Unknown - DA analysis failed",
                 "dissent_summary": "Could not challenge estimate. Reduce confidence as precaution.",
             }
