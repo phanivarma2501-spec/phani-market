@@ -25,8 +25,8 @@ class PolymarketConfig(BaseSettings):
 
     # Per-agent model configuration
     RESEARCH_MODEL: str = "deepseek-chat"          # Agent 1: Research (V3)
-    REASONING_MODEL: str = "deepseek-reasoner"     # Agent 2: Reasoning (R1)
-    DEVILS_ADVOCATE_MODEL: str = "deepseek-reasoner"  # Agent 3: Devil's Advocate (R1)
+    REASONING_MODEL: str = "deepseek-chat"          # Agent 2: Reasoning (V3)
+    DEVILS_ADVOCATE_MODEL: str = "deepseek-chat"     # Agent 3: Devil's Advocate (V3)
     # Agent 4: Risk — no LLM, pure math
     DECISION_MODEL: str = "deepseek-chat"          # Agent 5: Decision (V3)
 
