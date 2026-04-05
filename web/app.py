@@ -16,6 +16,9 @@ from core.market_fetcher import MarketFetcher
 
 storage = Storage()
 
+# Track bot thread errors for /api/debug endpoint
+_bot_last_error = {"error": None, "time": None, "restart_count": 0}
+
 
 def _start_bot_thread():
     """Start the bot scan loop in a background thread with auto-restart."""
@@ -32,6 +35,10 @@ def _start_bot_thread():
             engine = BotEngine(starting_capital=10_000.0)
             loop.run_until_complete(engine.run())
         except BaseException as e:
+            from datetime import datetime
+            _bot_last_error["error"] = f"{type(e).__name__}: {e}\n{tb.format_exc()[-500:]}"
+            _bot_last_error["time"] = datetime.utcnow().isoformat()
+            _bot_last_error["restart_count"] += 1
             bot_logger.error(f"[BOT-THREAD] ERROR — restarting in 60s: {type(e).__name__}: {e}")
             tb.print_exc()
             time.sleep(60)
@@ -56,6 +63,16 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Phani Market Bot", lifespan=lifespan)
+
+
+@app.get("/api/debug")
+async def api_debug():
+    """Debug endpoint — shows last bot error and restart count."""
+    return {
+        "last_error": _bot_last_error["error"],
+        "last_error_time": _bot_last_error["time"],
+        "restart_count": _bot_last_error["restart_count"],
+    }
 
 
 @app.get("/api/status")
