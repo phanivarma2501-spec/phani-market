@@ -81,6 +81,15 @@ class PolymarketConfig(BaseSettings):
     MAX_POSITION_PCT: float = 0.05       # Max 5% of capital per market
     MAX_CORRELATED_EXPOSURE: float = 0.15  # Max 15% in correlated markets
 
+    # --- Market Discovery ---
+    DISCOVERY_MIN_VOLUME: float = 5_000      # Min 24h volume for discovery
+    DISCOVERY_MAX_DAYS: int = 30             # Max days to resolution
+    DISCOVERY_PROB_MIN: float = 0.15         # Tighter band: 15-85%
+    DISCOVERY_PROB_MAX: float = 0.85
+    DISCOVERY_TOP_N: int = 5                 # Top N markets sent to agent pipeline per scan
+    DISCOVERY_FULL_INTERVAL_MINUTES: int = 60   # Full discovery scan interval
+    DISCOVERY_RESCORE_INTERVAL_MINUTES: int = 15  # Quick rescore interval
+
     # --- Scan schedule ---
     MARKET_SCAN_INTERVAL_MINUTES: int = 60   # How often to scan for new markets
     REASONING_SCAN_INTERVAL_MINUTES: int = 60  # How often to re-reason existing
