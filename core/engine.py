@@ -17,9 +17,8 @@ from core.models import PolymarketMarket, ReasoningResult, SignalStrength
 from data.news_fetcher import NewsFetcher
 from data.cross_platform import CrossPlatformFetcher
 from data.storage import Storage
-from reasoning.superforecaster import SuperForecaster
+from agents.pipeline import AgentPipeline
 from strategies.paper_trader import PaperTrader
-from strategies.correlation import CorrelationDetector
 from utils.alerts import TelegramAlerter
 from config.settings import settings
 
@@ -49,9 +48,8 @@ class BotEngine:
         self.market_fetcher = MarketFetcher()
         self.news_fetcher = NewsFetcher()
         self.cross_platform = CrossPlatformFetcher()
-        self.superforecaster = SuperForecaster()
+        self.pipeline = AgentPipeline()
         self.paper_trader = PaperTrader(self.storage, starting_capital)
-        self.correlation = CorrelationDetector()
         self.alerter = TelegramAlerter()
 
         self._running = False
@@ -105,11 +103,13 @@ class BotEngine:
                             cross_data, market.yes_price
                         )
 
-                        # Run structured reasoning (with cross-platform context)
-                        result = await self.superforecaster.reason_about_market(
-                            market, news,
-                            starting_capital=self.paper_trader.starting_capital,
-                            extra_context=cross_context,
+                        # Run 5-agent pipeline
+                        result = await self.pipeline.run(
+                            market=market,
+                            news_items=news,
+                            cross_platform_context=cross_context,
+                            open_positions=self.paper_trader._open_trades,
+                            total_capital=self.paper_trader.current_capital,
                         )
                         if not result:
                             return
@@ -117,25 +117,14 @@ class BotEngine:
                         # Save reasoning result
                         reasoning_id = await self.storage.save_reasoning(result)
 
-                        # Track for resolution (all signals, not just actionable)
+                        # Track for resolution
                         cross_prices_json = self.cross_platform.serialize(cross_data) if cross_data.get("has_cross_platform") else None
                         await self.storage.track_market(
                             result, market.domain.value, cross_prices_json
                         )
 
-                        # Paper trade if actionable
+                        # Paper trade if actionable (risk already checked by pipeline)
                         if result.signal in ALERT_SIGNALS:
-                            # Correlation check before trading
-                            open_positions = self.paper_trader._open_trades
-                            should_trade, corr_reason = self.correlation.check_before_trade(
-                                open_positions, market.question,
-                                result.suggested_position_usd,
-                                self.paper_trader.current_capital,
-                            )
-                            if not should_trade:
-                                logger.warning(f"Trade blocked by correlation: {corr_reason}")
-                                return
-
                             trade = await self.paper_trader.process_signal(result)
                             if trade:
                                 signals_this_cycle += 1

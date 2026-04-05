@@ -19,10 +19,16 @@ class PolymarketConfig(BaseSettings):
     CLOB_API_URL: str = "https://clob.polymarket.com"
     DATA_API_URL: str = "https://data-api.polymarket.com"
 
-    # --- DeepSeek (for reasoning engine — OpenAI-compatible API) ---
+    # --- DeepSeek (multi-agent reasoning pipeline) ---
     DEEPSEEK_API_KEY: str = Field(default="", env="DEEPSEEK_API_KEY")
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
-    REASONING_MODEL: str = "deepseek-chat"  # DeepSeek V3
+
+    # Per-agent model configuration
+    RESEARCH_MODEL: str = "deepseek-chat"          # Agent 1: Research (V3)
+    REASONING_MODEL: str = "deepseek-reasoner"     # Agent 2: Reasoning (R1)
+    DEVILS_ADVOCATE_MODEL: str = "deepseek-reasoner"  # Agent 3: Devil's Advocate (R1)
+    # Agent 4: Risk — no LLM, pure math
+    DECISION_MODEL: str = "deepseek-chat"          # Agent 5: Decision (V3)
 
     # --- Telegram alerts ---
     TELEGRAM_BOT_TOKEN: Optional[str] = Field(None, env="TELEGRAM_BOT_TOKEN")
