@@ -84,12 +84,22 @@ class BotEngine:
 
             logger.info(f"Processing {len(qualified_markets)} qualified markets...")
 
-            # Step 2: Process each market (with concurrency limit to be respectful)
+            # Update progress tracker (used by /api/debug)
+            try:
+                from web.app import _bot_progress
+                _bot_progress["scan_number"] = self._scan_count
+                _bot_progress["markets_total"] = len(qualified_markets)
+                _bot_progress["markets_processed"] = 0
+            except ImportError:
+                _bot_progress = None
+
+            # Step 2: Process each market sequentially through 5-agent pipeline
             signals_this_cycle = 0
-            semaphore = asyncio.Semaphore(3)  # Max 3 concurrent reasoning calls
+            markets_done = 0
+            semaphore = asyncio.Semaphore(1)  # Sequential: pipeline makes 4 LLM calls per market
 
             async def process_market(market: PolymarketMarket):
-                nonlocal signals_this_cycle
+                nonlocal signals_this_cycle, markets_done
                 async with semaphore:
                     try:
                         # Fetch news for this market
@@ -134,6 +144,16 @@ class BotEngine:
                     except Exception as e:
                         self._errors_today += 1
                         logger.error(f"Error processing '{market.question[:40]}': {e}")
+                    finally:
+                        markets_done += 1
+                        try:
+                            from web.app import _bot_progress
+                            from datetime import datetime as _dt
+                            _bot_progress["markets_processed"] = markets_done
+                            _bot_progress["last_market"] = market.question[:60]
+                            _bot_progress["last_update"] = _dt.utcnow().isoformat()
+                        except ImportError:
+                            pass
 
             # Process all markets concurrently (respecting semaphore)
             await asyncio.gather(*[process_market(m) for m in qualified_markets])

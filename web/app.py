@@ -16,8 +16,9 @@ from core.market_fetcher import MarketFetcher
 
 storage = Storage()
 
-# Track bot thread errors for /api/debug endpoint
+# Track bot thread errors and scan progress for /api/debug endpoint
 _bot_last_error = {"error": None, "time": None, "restart_count": 0}
+_bot_progress = {"scan_number": 0, "markets_processed": 0, "markets_total": 0, "last_market": "", "last_update": None}
 
 
 def _start_bot_thread():
@@ -67,11 +68,12 @@ app = FastAPI(title="Phani Market Bot", lifespan=lifespan)
 
 @app.get("/api/debug")
 async def api_debug():
-    """Debug endpoint — shows last bot error and restart count."""
+    """Debug endpoint — shows last bot error, restart count, and scan progress."""
     return {
         "last_error": _bot_last_error["error"],
         "last_error_time": _bot_last_error["time"],
         "restart_count": _bot_last_error["restart_count"],
+        "scan_progress": _bot_progress,
     }
 
 
