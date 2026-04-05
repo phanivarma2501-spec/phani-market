@@ -74,7 +74,7 @@ async def api_status():
         "total_trades": perf.get("total_trades", 0),
         "threads": threads,
         "thread_count": len(threads),
-        "env_key_set": bool(os.environ.get("ANTHROPIC_API_KEY")),
+        "env_key_set": bool(os.environ.get("DEEPSEEK_API_KEY")),
         "message": "Waiting for first scan..." if perf.get("total_trades", 0) == 0 else "Bot is running",
     }
 

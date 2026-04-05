@@ -1,7 +1,7 @@
 """
 reasoning/superforecaster.py
 
-THE CORE DIFFERENTIATOR — Structured reasoning engine using Gemini + Google Search.
+THE CORE DIFFERENTIATOR — Structured reasoning engine using DeepSeek V3.
 
 Every other bot asks an LLM: "What's the probability?"
 We do it properly: base rates → reference class → inside view →
@@ -157,17 +157,18 @@ class SuperForecaster:
     """
     Structured reasoning engine — the core differentiator.
 
-    Uses Gemini 2.5 Flash with Google Search grounding to perform
-    6-step Tetlock superforecasting, producing calibrated probability
-    estimates with confidence bands.
+    Uses DeepSeek V3 (OpenAI-compatible API) to perform 6-step Tetlock
+    superforecasting, producing calibrated probability estimates with
+    confidence bands.
     """
 
     def __init__(self):
-        from google import genai
-        from google.genai import types
-        self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
-        self.types = types
-        self.model = "gemini-2.5-flash"
+        from openai import OpenAI
+        self.client = OpenAI(
+            api_key=settings.DEEPSEEK_API_KEY,
+            base_url=settings.DEEPSEEK_BASE_URL,
+        )
+        self.model = settings.REASONING_MODEL
 
     def _get_base_rate(
         self, market: PolymarketMarket
@@ -350,19 +351,14 @@ class SuperForecaster:
         try:
             logger.debug(f"Reasoning about: {market.question[:60]}...")
 
-            # Gemini with Google Search grounding for real-time information
-            response = self.client.models.generate_content(
+            response = self.client.chat.completions.create(
                 model=self.model,
-                contents=prompt,
-                config=self.types.GenerateContentConfig(
-                    temperature=0.3,
-                    tools=[self.types.Tool(
-                        google_search=self.types.GoogleSearch()
-                    )],
-                ),
+                max_tokens=1500,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
             )
 
-            raw_text = response.text
+            raw_text = response.choices[0].message.content
             data = self._parse_llm_response(raw_text)
 
             # Extract core outputs

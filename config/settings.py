@@ -19,8 +19,10 @@ class PolymarketConfig(BaseSettings):
     CLOB_API_URL: str = "https://clob.polymarket.com"
     DATA_API_URL: str = "https://data-api.polymarket.com"
 
-    # --- Gemini (for reasoning engine) ---
-    GEMINI_API_KEY: str = Field(default="", env="GEMINI_API_KEY")
+    # --- DeepSeek (for reasoning engine — OpenAI-compatible API) ---
+    DEEPSEEK_API_KEY: str = Field(default="", env="DEEPSEEK_API_KEY")
+    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
+    REASONING_MODEL: str = "deepseek-chat"  # DeepSeek V3
 
     # --- Telegram alerts ---
     TELEGRAM_BOT_TOKEN: Optional[str] = Field(None, env="TELEGRAM_BOT_TOKEN")
