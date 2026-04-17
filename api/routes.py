@@ -16,6 +16,20 @@ def update_last_reasoning(entries: list):
     _last_reasoning = entries[-5:]  # Keep last 5
 
 
+@app.route("/")
+def index():
+    return jsonify({
+        "service": "phani-market v2",
+        "endpoints": {
+            "/health": "liveness probe",
+            "/debug": "portfolio value + recent scan logs",
+            "/trades": "all paper trades with win/loss summary",
+            "/reasoning": "R1 reasoning for the last 5 markets",
+            "/calibration": "Brier scores by category",
+        },
+    })
+
+
 @app.route("/health")
 def health():
     return jsonify({"status": "ok", "paper_trading": True})
