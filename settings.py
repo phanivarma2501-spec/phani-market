@@ -41,8 +41,5 @@ EXIT_EDGE_THRESHOLD = 0.02   # Exit position when edge drops below 2%
 # ─── Scheduler ─────────────────────────────────────────────────────────────
 SCAN_INTERVAL_HOURS = 1      # Scan every 1 hour
 
-# ─── Database ──────────────────────────────────────────────────────────────
-DB_PATH = os.environ.get("DB_PATH", "phani_market.db")
-
 # ─── API ───────────────────────────────────────────────────────────────────
 API_PORT = int(os.environ.get("PORT", 8000))
