@@ -1,13 +1,21 @@
-from settings import EDGE_THRESHOLD_BUY, EDGE_THRESHOLD_STRONG, MIN_POSITION_USD
+from settings import EDGE_THRESHOLD_BUY, EDGE_THRESHOLD_STRONG, MIN_POSITION_USD, MIN_ENTRY_PRICE
 
 
-def check_edge(kelly_result: dict, size_usd: float) -> dict:
+def check_edge(kelly_result: dict, size_usd: float, entry_price: float) -> dict:
     """
     Gate: only allow bets that meet minimum edge threshold.
     Returns dict with should_bet, reason, signal_strength.
     """
     edge = kelly_result.get("edge", 0)
     direction = kelly_result.get("direction", "YES")
+
+    # Longshot filter: skip bets on sub-5% entry prices (LLM hallucinates on dead markets)
+    if entry_price < MIN_ENTRY_PRICE:
+        return {
+            "should_bet": False,
+            "reason": f"Entry price too low ({entry_price:.3f} < {MIN_ENTRY_PRICE:.2f})",
+            "signal_strength": "none"
+        }
 
     # Minimum size check
     if size_usd < MIN_POSITION_USD:

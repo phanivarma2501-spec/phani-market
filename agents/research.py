@@ -17,13 +17,10 @@ def research_market(market: Dict) -> Dict:
     print(f"  [Research] Fetching news for: {question[:60]}...")
     news_context = get_news_context(question)
 
-    # 2. Fetch Metaculus probability
-    print(f"  [Research] Checking Metaculus...")
+    # 2. Metaculus (currently disabled — returns None)
     metaculus_prob = search_metaculus(question)
     if metaculus_prob is not None:
         print(f"  [Research] Metaculus probability: {metaculus_prob:.1%}")
-    else:
-        print(f"  [Research] No Metaculus match found")
 
     # 3. Summarise with DeepSeek V3
     summary = _summarise_context(question, news_context, metaculus_prob)

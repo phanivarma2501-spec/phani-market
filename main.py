@@ -107,15 +107,17 @@ def run_scan():
                 direction = kelly["direction"]
                 edge = kelly["edge"]
                 size_usd = kelly["size_usd"]
+                entry_price = yes_price if direction == "YES" else market.get("no_price", 0.5)
 
                 market_log["direction"] = direction
                 market_log["edge"] = edge
                 market_log["size_usd"] = size_usd
+                market_log["entry_price"] = entry_price
 
-                print(f"  [Main] Direction: {direction} | Edge: {edge:.1%} | Size: ${size_usd:.2f}")
+                print(f"  [Main] Direction: {direction} | Edge: {edge:.1%} | Size: ${size_usd:.2f} @ {entry_price:.3f}")
 
                 # Edge gate
-                gate = check_edge(kelly, size_usd)
+                gate = check_edge(kelly, size_usd, entry_price)
                 market_log["gate_result"] = gate["reason"]
                 market_log["signal_strength"] = gate["signal_strength"]
 
@@ -128,7 +130,6 @@ def run_scan():
                 print(f"  [Main] ✅ Edge gate passed: {gate['reason']}")
 
                 # Execute paper trade
-                entry_price = yes_price if direction == "YES" else market.get("no_price", 0.5)
                 trade = execute_paper_trade(
                     market=enriched,
                     direction=direction,
