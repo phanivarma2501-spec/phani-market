@@ -7,7 +7,10 @@ from datetime import datetime
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
-from db.database import init_db, save_market, save_scan_log, get_portfolio_value, get_open_trades
+from db.database import (
+    init_db, save_market, save_scan_log, get_portfolio_value,
+    get_open_trades, get_recent_trade_market_ids,
+)
 from data.polymarket import get_active_markets
 from agents.research import research_market
 from agents.reasoning import estimate_probability
@@ -19,7 +22,7 @@ from api.routes import app, update_last_reasoning
 from settings import (
     SCAN_INTERVAL_HOURS, PAPER_TRADING, STARTING_BANKROLL,
     EDGE_THRESHOLD_BUY, METACULUS_GAP_THRESHOLD, API_PORT,
-    MAX_OPEN_POSITIONS,
+    MAX_OPEN_POSITIONS, REENTRY_COOLDOWN_HOURS,
 )
 
 
@@ -65,6 +68,12 @@ def run_scan():
         open_count = len(open_trades)
         print(f"[Scan] Currently holding {open_count} open position(s)")
 
+        # Cooldown: any market traded (open or closed) within window is blocked
+        cooldown_market_ids = set(get_recent_trade_market_ids(REENTRY_COOLDOWN_HOURS))
+        cooldown_only = cooldown_market_ids - open_market_ids
+        if cooldown_only:
+            print(f"[Scan] Cooldown blocking {len(cooldown_only)} recently-closed market(s)")
+
         # 4. Process each market
         for i, market in enumerate(markets):
             if open_count >= MAX_OPEN_POSITIONS:
@@ -78,6 +87,13 @@ def run_scan():
             if market["id"] in open_market_ids:
                 print(f"  [Main] ⏭️ Already have open position — skipping")
                 market_log["skipped_reason"] = "Already open"
+                reasoning_log.append(market_log)
+                continue
+
+            # Cooldown: skip markets traded within the re-entry window
+            if market["id"] in cooldown_market_ids:
+                print(f"  [Main] ⏭️ Cooldown ({REENTRY_COOLDOWN_HOURS}h) — skipping")
+                market_log["skipped_reason"] = "Cooldown"
                 reasoning_log.append(market_log)
                 continue
 

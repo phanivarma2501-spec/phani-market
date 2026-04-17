@@ -1,6 +1,6 @@
 import os
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 
 TURSO_URL = os.environ.get("TURSO_DATABASE_URL", "")
 TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "")
@@ -185,6 +185,15 @@ def close_trade(trade_id: int, exit_price: float, pnl: float, outcome: str):
 
 def get_open_trades():
     return _rows_to_dicts(_execute("SELECT * FROM trades WHERE status='open'"))
+
+
+def get_recent_trade_market_ids(hours: int) -> list:
+    cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+    rows = _rows_to_dicts(_execute(
+        "SELECT DISTINCT market_id FROM trades WHERE opened_at > ?",
+        [cutoff]
+    ))
+    return [r["market_id"] for r in rows]
 
 
 def get_all_trades():

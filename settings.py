@@ -14,6 +14,7 @@ EDGE_THRESHOLD_BUY = 0.05   # 5% minimum edge to place bet (longshots caught by 
 EDGE_THRESHOLD_STRONG = 0.08 # 8% = strong signal
 MIN_ENTRY_PRICE = 0.05      # Skip longshots: no bets where entry price < 5%
 MAX_OPEN_POSITIONS = 15     # Hard cap on concurrent open positions
+REENTRY_COOLDOWN_HOURS = 24 # Don't re-enter a market within N hours of any prior trade
 EXCLUDED_CATEGORIES = ["sports", "gaming", "esports"]  # Skip these market categories entirely
 
 # ─── Kelly Criterion ───────────────────────────────────────────────────────
