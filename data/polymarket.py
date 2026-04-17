@@ -1,6 +1,21 @@
+import json
 import requests
 from typing import List, Dict, Optional
 from settings import POLYMARKET_GAMMA_URL, POLYMARKET_BASE_URL, MIN_LIQUIDITY_USD, MAX_MARKETS_PER_SCAN
+
+
+def _parse_json_list(value):
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, list) else []
+        except (ValueError, TypeError):
+            return []
+    return []
 
 
 def get_active_markets() -> List[Dict]:
@@ -18,28 +33,37 @@ def get_active_markets() -> List[Dict]:
         data = resp.json()
         markets = data if isinstance(data, list) else data.get("markets", [])
         filtered = []
+        skipped_liquidity = skipped_no_date = skipped_parse = 0
         for m in markets:
             try:
-                liquidity = float(m.get("liquidity", 0) or 0)
+                liquidity = float(m.get("liquidity") or 0)
                 if liquidity < MIN_LIQUIDITY_USD:
+                    skipped_liquidity += 1
                     continue
-                # Skip markets with no clear end date
-                if not m.get("endDate") and not m.get("end_date"):
+                end_date = m.get("endDate") or m.get("end_date")
+                if not end_date:
+                    skipped_no_date += 1
                     continue
+                prices = _parse_json_list(m.get("outcomePrices"))
+                yes_price = float(prices[0]) if len(prices) > 0 else 0.5
+                no_price = float(prices[1]) if len(prices) > 1 else 1 - yes_price
                 filtered.append({
-                    "id": str(m.get("id", m.get("conditionId", ""))),
+                    "id": str(m.get("id") or m.get("conditionId") or ""),
+                    "conditionId": m.get("conditionId"),
                     "question": m.get("question", ""),
                     "category": m.get("category", "general"),
-                    "end_date": m.get("endDate") or m.get("end_date"),
+                    "end_date": end_date,
                     "liquidity_usd": liquidity,
-                    "yes_price": float(m.get("outcomePrices", ["0.5"])[0] if m.get("outcomePrices") else 0.5),
-                    "no_price": float(m.get("outcomePrices", ["0.5", "0.5"])[1] if m.get("outcomePrices") else 0.5),
-                    "volume_24hr": float(m.get("volume24hr", 0) or 0),
+                    "yes_price": yes_price,
+                    "no_price": no_price,
+                    "volume_24hr": float(m.get("volume24hr") or 0),
                     "description": m.get("description", ""),
                 })
             except Exception:
+                skipped_parse += 1
                 continue
-        # Sort by volume and take top N
+        print(f"[Polymarket] {len(markets)} fetched | {len(filtered)} passed | "
+              f"skipped: liquidity={skipped_liquidity}, no_date={skipped_no_date}, parse={skipped_parse}")
         filtered.sort(key=lambda x: x["volume_24hr"], reverse=True)
         return filtered[:MAX_MARKETS_PER_SCAN]
     except Exception as e:
@@ -53,10 +77,10 @@ def get_market_price(market_id: str) -> Optional[Dict]:
         resp = requests.get(f"{POLYMARKET_GAMMA_URL}/markets/{market_id}", timeout=10)
         resp.raise_for_status()
         m = resp.json()
-        return {
-            "yes_price": float(m.get("outcomePrices", ["0.5"])[0] if m.get("outcomePrices") else 0.5),
-            "no_price": float(m.get("outcomePrices", ["0.5", "0.5"])[1] if m.get("outcomePrices") else 0.5),
-        }
+        prices = _parse_json_list(m.get("outcomePrices"))
+        yes = float(prices[0]) if len(prices) > 0 else 0.5
+        no = float(prices[1]) if len(prices) > 1 else 1 - yes
+        return {"yes_price": yes, "no_price": no}
     except Exception as e:
         print(f"[Polymarket] Error fetching price for {market_id}: {e}")
         return None
