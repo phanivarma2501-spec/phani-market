@@ -1,7 +1,10 @@
 import json
 import requests
 from typing import List, Dict, Optional
-from settings import POLYMARKET_GAMMA_URL, POLYMARKET_BASE_URL, MIN_LIQUIDITY_USD, MAX_MARKETS_PER_SCAN
+from settings import (
+    POLYMARKET_GAMMA_URL, POLYMARKET_BASE_URL,
+    MIN_LIQUIDITY_USD, MAX_MARKETS_PER_SCAN, EXCLUDED_CATEGORIES,
+)
 
 
 def _parse_json_list(value):
@@ -33,9 +36,13 @@ def get_active_markets() -> List[Dict]:
         data = resp.json()
         markets = data if isinstance(data, list) else data.get("markets", [])
         filtered = []
-        skipped_liquidity = skipped_no_date = skipped_parse = 0
+        skipped_liquidity = skipped_no_date = skipped_parse = skipped_category = 0
         for m in markets:
             try:
+                category = (m.get("category") or "").lower()
+                if any(ex in category for ex in EXCLUDED_CATEGORIES):
+                    skipped_category += 1
+                    continue
                 liquidity = float(m.get("liquidity") or 0)
                 if liquidity < MIN_LIQUIDITY_USD:
                     skipped_liquidity += 1
@@ -63,7 +70,8 @@ def get_active_markets() -> List[Dict]:
                 skipped_parse += 1
                 continue
         print(f"[Polymarket] {len(markets)} fetched | {len(filtered)} passed | "
-              f"skipped: liquidity={skipped_liquidity}, no_date={skipped_no_date}, parse={skipped_parse}")
+              f"skipped: category={skipped_category}, liquidity={skipped_liquidity}, "
+              f"no_date={skipped_no_date}, parse={skipped_parse}")
         filtered.sort(key=lambda x: x["volume_24hr"], reverse=True)
         return filtered[:MAX_MARKETS_PER_SCAN]
     except Exception as e:

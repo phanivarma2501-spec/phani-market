@@ -7,7 +7,7 @@ from datetime import datetime
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
-from db.database import init_db, save_market, save_scan_log, get_portfolio_value
+from db.database import init_db, save_market, save_scan_log, get_portfolio_value, get_open_trades
 from data.polymarket import get_active_markets
 from agents.research import research_market
 from agents.reasoning import estimate_probability
@@ -18,7 +18,8 @@ from core.executor import execute_paper_trade, check_open_positions
 from api.routes import app, update_last_reasoning
 from settings import (
     SCAN_INTERVAL_HOURS, PAPER_TRADING, STARTING_BANKROLL,
-    EDGE_THRESHOLD_BUY, METACULUS_GAP_THRESHOLD, API_PORT
+    EDGE_THRESHOLD_BUY, METACULUS_GAP_THRESHOLD, API_PORT,
+    MAX_OPEN_POSITIONS,
 )
 
 
@@ -58,10 +59,27 @@ def run_scan():
             })
             return
 
+        # Snapshot open positions once per scan — used to dedupe and enforce cap
+        open_trades = get_open_trades()
+        open_market_ids = {t["market_id"] for t in open_trades}
+        open_count = len(open_trades)
+        print(f"[Scan] Currently holding {open_count} open position(s)")
+
         # 4. Process each market
         for i, market in enumerate(markets):
+            if open_count >= MAX_OPEN_POSITIONS:
+                print(f"[Scan] ⛔ Max open positions reached ({MAX_OPEN_POSITIONS}) — stopping scan")
+                break
+
             print(f"\n[Market {i+1}/{markets_found}] {market['question'][:70]}...")
             market_log = {"question": market["question"], "id": market["id"]}
+
+            # Dedupe: skip markets we already hold a position on (before any expensive work)
+            if market["id"] in open_market_ids:
+                print(f"  [Main] ⏭️ Already have open position — skipping")
+                market_log["skipped_reason"] = "Already open"
+                reasoning_log.append(market_log)
+                continue
 
             try:
                 # Save market to DB
@@ -142,6 +160,8 @@ def run_scan():
                     reasoning=full_reasoning,
                 )
                 bets_placed += 1
+                open_count += 1
+                open_market_ids.add(market["id"])
                 market_log["trade_placed"] = True
                 market_log["trade_id"] = trade.get("id")
 
