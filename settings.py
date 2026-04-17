@@ -10,7 +10,7 @@ REASONING_MODEL = "deepseek-reasoner"  # DeepSeek R1
 PLATT_SCALE = 0.85          # Single-pass only — no stacking
 
 # ─── Edge Gates ────────────────────────────────────────────────────────────
-EDGE_THRESHOLD_BUY = 0.06   # 6% minimum edge to place bet
+EDGE_THRESHOLD_BUY = 0.05   # 5% minimum edge to place bet (longshots caught by MIN_ENTRY_PRICE)
 EDGE_THRESHOLD_STRONG = 0.08 # 8% = strong signal
 MIN_ENTRY_PRICE = 0.05      # Skip longshots: no bets where entry price < 5%
 
