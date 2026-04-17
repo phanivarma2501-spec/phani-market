@@ -1,6 +1,10 @@
+import time
 import requests
 from typing import List, Dict
 from settings import GDELT_BASE_URL
+
+_last_call_ts = 0.0
+_MIN_GAP_SECONDS = 2.0
 
 
 def get_news_context(question: str, max_articles: int = 5) -> str:
@@ -8,18 +12,30 @@ def get_news_context(question: str, max_articles: int = 5) -> str:
     Fetch recent news articles from GDELT relevant to the market question.
     Returns a summarised string of headlines and snippets.
     """
+    global _last_call_ts
     try:
+        # Rate-limit politely: GDELT 429s aggressively
+        gap = time.time() - _last_call_ts
+        if gap < _MIN_GAP_SECONDS:
+            time.sleep(_MIN_GAP_SECONDS - gap)
+
         keywords = _extract_search_query(question)
         params = {
             "query": keywords,
             "mode": "artlist",
             "maxrecords": max_articles,
-            "timespan": "3d",   # Last 3 days
+            "timespan": "3d",
             "sort": "DateDesc",
             "format": "json",
         }
         resp = requests.get(GDELT_BASE_URL, params=params, timeout=15)
+        _last_call_ts = time.time()
+        if resp.status_code == 429:
+            return "News fetch rate-limited."
         resp.raise_for_status()
+        # GDELT returns empty body for some queries — treat as no news instead of crashing
+        if not resp.text.strip():
+            return "No recent news found."
         data = resp.json()
         articles = data.get("articles", [])
 

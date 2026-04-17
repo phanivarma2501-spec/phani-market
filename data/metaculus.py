@@ -20,7 +20,14 @@ def search_metaculus(question: str) -> Optional[float]:
             "type": "forecast",
             "limit": 5,
         }
-        resp = requests.get(f"{METACULUS_BASE_URL}/questions/", params=params, timeout=10)
+        resp = requests.get(
+            f"{METACULUS_BASE_URL}/questions/",
+            params=params,
+            headers={"User-Agent": "phani-market-bot/2.0 (https://github.com/phanivarma2501-spec/phani-market)"},
+            timeout=10,
+        )
+        if resp.status_code == 403:
+            return None
         resp.raise_for_status()
         data = resp.json()
         results = data.get("results", [])

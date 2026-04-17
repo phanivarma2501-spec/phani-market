@@ -44,6 +44,11 @@ PROBABILITY: 0.XX
 
 Where 0.XX is your probability estimate (e.g. PROBABILITY: 0.67)"""
 
+    if not DEEPSEEK_API_KEY:
+        print("  [Reasoning] DEEPSEEK_API_KEY is empty — cannot call R1", flush=True)
+        return None, "DEEPSEEK_API_KEY not set"
+
+    print(f"  [Reasoning] Calling R1 for: {question[:60]}...", flush=True)
     try:
         resp = requests.post(
             f"{DEEPSEEK_BASE_URL}/chat/completions",
@@ -55,19 +60,23 @@ Where 0.XX is your probability estimate (e.g. PROBABILITY: 0.67)"""
                 "model": REASONING_MODEL,
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 1500,
-                "temperature": 0.1,  # Low temperature for consistency
+                "temperature": 0.1,
             },
             timeout=60,
         )
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            print(f"  [Reasoning] R1 HTTP {resp.status_code}: {resp.text[:200]}", flush=True)
+            return None, f"HTTP {resp.status_code}"
         content = resp.json()["choices"][0]["message"]["content"].strip()
-
-        # Extract probability from last line
         probability = _extract_probability(content)
+        if probability is None:
+            print(f"  [Reasoning] R1 returned no parseable PROBABILITY. Tail: {content[-120:]!r}", flush=True)
+        else:
+            print(f"  [Reasoning] R1 → {probability:.1%}", flush=True)
         return probability, content
 
     except Exception as e:
-        print(f"  [Reasoning] Error: {e}")
+        print(f"  [Reasoning] Error: {e}", flush=True)
         return None, str(e)
 
 

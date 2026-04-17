@@ -1,7 +1,11 @@
+import sys
 import time
 import threading
 import traceback
 from datetime import datetime
+
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
 
 from db.database import init_db, save_market, save_scan_log, get_portfolio_value
 from data.polymarket import get_active_markets
