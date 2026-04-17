@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, render_template
 from db.database import (
     get_all_trades, get_open_trades, get_brier_scores,
     get_recent_scan_logs, get_portfolio_value
@@ -17,7 +17,12 @@ def update_last_reasoning(entries: list):
 
 
 @app.route("/")
-def index():
+def dashboard():
+    return render_template("dashboard.html")
+
+
+@app.route("/api")
+def api_index():
     return jsonify({
         "service": "phani-market v2",
         "endpoints": {

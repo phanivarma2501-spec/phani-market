@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>phani-market v2</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+</style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <div class="max-w-6xl mx-auto p-6">
+    <header class="flex items-baseline justify-between mb-6">
+      <div>
+        <h1 class="text-2xl font-semibold">phani-market <span class="text-slate-500">v2</span></h1>
+        <p class="text-xs text-slate-500 mt-1">Polymarket paper trading · DeepSeek V3/R1 · auto-refresh 30s</p>
+      </div>
+      <div class="text-xs text-slate-500">last update: <span id="last-update">—</span></div>
+    </header>
+
+    <!-- Stats row -->
+    <section class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+      <div class="bg-slate-900 rounded-lg p-4 border border-slate-800">
+        <div class="text-xs uppercase text-slate-500 tracking-wide">Portfolio</div>
+        <div id="stat-portfolio" class="text-2xl font-semibold mt-1 mono">—</div>
+      </div>
+      <div class="bg-slate-900 rounded-lg p-4 border border-slate-800">
+        <div class="text-xs uppercase text-slate-500 tracking-wide">Total P&amp;L</div>
+        <div id="stat-pnl" class="text-2xl font-semibold mt-1 mono">—</div>
+      </div>
+      <div class="bg-slate-900 rounded-lg p-4 border border-slate-800">
+        <div class="text-xs uppercase text-slate-500 tracking-wide">Win rate</div>
+        <div id="stat-winrate" class="text-2xl font-semibold mt-1 mono">—</div>
+      </div>
+      <div class="bg-slate-900 rounded-lg p-4 border border-slate-800">
+        <div class="text-xs uppercase text-slate-500 tracking-wide">Trades (open / closed)</div>
+        <div id="stat-counts" class="text-2xl font-semibold mt-1 mono">—</div>
+      </div>
+    </section>
+
+    <!-- Open positions -->
+    <section class="mb-6">
+      <h2 class="text-sm uppercase tracking-wide text-slate-400 mb-2">Open positions</h2>
+      <div class="bg-slate-900 rounded-lg border border-slate-800 overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="text-slate-500 uppercase text-xs tracking-wide">
+            <tr>
+              <th class="text-left px-3 py-2">Question</th>
+              <th class="text-right px-3 py-2">Dir</th>
+              <th class="text-right px-3 py-2">Entry</th>
+              <th class="text-right px-3 py-2">Size</th>
+              <th class="text-right px-3 py-2">Edge</th>
+              <th class="text-right px-3 py-2">Opened</th>
+            </tr>
+          </thead>
+          <tbody id="open-trades" class="divide-y divide-slate-800"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Closed trades -->
+    <section class="mb-6">
+      <h2 class="text-sm uppercase tracking-wide text-slate-400 mb-2">Recent closed trades</h2>
+      <div class="bg-slate-900 rounded-lg border border-slate-800 overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="text-slate-500 uppercase text-xs tracking-wide">
+            <tr>
+              <th class="text-left px-3 py-2">Question</th>
+              <th class="text-right px-3 py-2">Dir</th>
+              <th class="text-right px-3 py-2">Entry</th>
+              <th class="text-right px-3 py-2">Exit</th>
+              <th class="text-right px-3 py-2">P&amp;L</th>
+              <th class="text-right px-3 py-2">Outcome</th>
+            </tr>
+          </thead>
+          <tbody id="closed-trades" class="divide-y divide-slate-800"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- R1 reasoning -->
+    <section class="mb-6">
+      <h2 class="text-sm uppercase tracking-wide text-slate-400 mb-2">Latest R1 reasoning</h2>
+      <div id="reasoning-list" class="space-y-3"></div>
+    </section>
+
+    <!-- Scan logs -->
+    <section class="mb-6">
+      <h2 class="text-sm uppercase tracking-wide text-slate-400 mb-2">Recent scans</h2>
+      <div class="bg-slate-900 rounded-lg border border-slate-800 overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="text-slate-500 uppercase text-xs tracking-wide">
+            <tr>
+              <th class="text-left px-3 py-2">Time (UTC)</th>
+              <th class="text-right px-3 py-2">Markets</th>
+              <th class="text-right px-3 py-2">With edge</th>
+              <th class="text-right px-3 py-2">Bets placed</th>
+              <th class="text-left px-3 py-2">Errors</th>
+            </tr>
+          </thead>
+          <tbody id="scan-logs" class="divide-y divide-slate-800"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="text-xs text-slate-600 mt-8">
+      JSON API: <a class="text-slate-400 hover:underline" href="/api">/api</a> ·
+      <a class="text-slate-400 hover:underline" href="/debug">/debug</a> ·
+      <a class="text-slate-400 hover:underline" href="/trades">/trades</a> ·
+      <a class="text-slate-400 hover:underline" href="/reasoning">/reasoning</a> ·
+      <a class="text-slate-400 hover:underline" href="/calibration">/calibration</a>
+    </footer>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const fmtUSD = (n) => (n == null ? "—" : "$" + Number(n).toLocaleString(undefined, {maximumFractionDigits: 2}));
+const fmtPct = (n) => (n == null ? "—" : (Number(n) * 100).toFixed(1) + "%");
+const fmtPrice = (n) => (n == null ? "—" : Number(n).toFixed(3));
+const esc = (s) => (s == null ? "" : String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])));
+const shortTs = (s) => { if (!s) return "—"; const d = new Date(s); return isNaN(d) ? s : d.toISOString().replace("T", " ").slice(0, 16); };
+const pnlColor = (n) => (n == null ? "text-slate-400" : n > 0 ? "text-emerald-400" : n < 0 ? "text-rose-400" : "text-slate-400");
+
+async function loadAll() {
+  try {
+    const [debug, trades, reasoning] = await Promise.all([
+      fetch("/debug").then(r => r.json()),
+      fetch("/trades").then(r => r.json()),
+      fetch("/reasoning").then(r => r.json()),
+    ]);
+    renderStats(debug, trades);
+    renderOpen(trades.open_trades || []);
+    renderClosed(trades.closed_trades || []);
+    renderReasoning(reasoning.markets || []);
+    renderScans(debug.recent_scans || []);
+    $("last-update").textContent = new Date().toISOString().replace("T", " ").slice(0, 19) + "Z";
+  } catch (e) {
+    $("last-update").textContent = "error: " + e.message;
+  }
+}
+
+function renderStats(debug, trades) {
+  const s = trades.summary || {};
+  $("stat-portfolio").textContent = fmtUSD(debug.portfolio_value_usd);
+  const pnl = debug.total_pnl_usd ?? 0;
+  const pnlEl = $("stat-pnl");
+  pnlEl.textContent = (pnl > 0 ? "+" : "") + fmtUSD(pnl);
+  pnlEl.className = "text-2xl font-semibold mt-1 mono " + pnlColor(pnl);
+  $("stat-winrate").textContent = s.closed ? (s.win_rate * 100).toFixed(0) + "% (" + s.wins + "/" + s.closed + ")" : "—";
+  $("stat-counts").textContent = (s.open ?? 0) + " / " + (s.closed ?? 0);
+}
+
+function renderOpen(rows) {
+  const tbody = $("open-trades");
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="text-center text-slate-500 px-3 py-4">No open positions.</td></tr>'; return; }
+  tbody.innerHTML = rows.map(t => `
+    <tr>
+      <td class="px-3 py-2">${esc((t.question || "").slice(0, 80))}</td>
+      <td class="px-3 py-2 text-right mono">${esc(t.direction)}</td>
+      <td class="px-3 py-2 text-right mono">${fmtPrice(t.entry_price)}</td>
+      <td class="px-3 py-2 text-right mono">${fmtUSD(t.size_usd)}</td>
+      <td class="px-3 py-2 text-right mono">${fmtPct(t.edge)}</td>
+      <td class="px-3 py-2 text-right mono text-slate-500">${shortTs(t.opened_at)}</td>
+    </tr>`).join("");
+}
+
+function renderClosed(rows) {
+  const tbody = $("closed-trades");
+  const sorted = [...rows].sort((a, b) => (b.closed_at || "").localeCompare(a.closed_at || ""));
+  const show = sorted.slice(0, 20);
+  if (!show.length) { tbody.innerHTML = '<tr><td colspan="6" class="text-center text-slate-500 px-3 py-4">No closed trades yet.</td></tr>'; return; }
+  tbody.innerHTML = show.map(t => `
+    <tr>
+      <td class="px-3 py-2">${esc((t.question || "").slice(0, 80))}</td>
+      <td class="px-3 py-2 text-right mono">${esc(t.direction)}</td>
+      <td class="px-3 py-2 text-right mono">${fmtPrice(t.entry_price)}</td>
+      <td class="px-3 py-2 text-right mono">${fmtPrice(t.exit_price)}</td>
+      <td class="px-3 py-2 text-right mono ${pnlColor(t.pnl)}">${t.pnl == null ? "—" : (t.pnl > 0 ? "+" : "") + fmtUSD(t.pnl)}</td>
+      <td class="px-3 py-2 text-right mono text-slate-500">${esc(t.resolved_outcome || "—")}</td>
+    </tr>`).join("");
+}
+
+function renderReasoning(rows) {
+  const out = $("reasoning-list");
+  if (!rows.length) { out.innerHTML = '<div class="text-slate-500 text-sm">No reasoning logged yet.</div>'; return; }
+  out.innerHTML = rows.map(m => `
+    <div class="bg-slate-900 rounded-lg border border-slate-800 p-4">
+      <div class="text-sm font-medium">${esc(m.question || "")}</div>
+      <div class="text-xs text-slate-500 mt-1">
+        LLM: ${m.llm_probability == null ? "—" : fmtPct(m.llm_probability)} ·
+        calibrated: ${m.calibrated_probability == null ? "—" : fmtPct(m.calibrated_probability)} ·
+        dir: ${esc(m.direction || "—")} ·
+        edge: ${m.edge == null ? "—" : fmtPct(m.edge)} ·
+        gate: ${esc(m.gate_result || m.skipped_reason || "—")}
+      </div>
+      ${m.reasoning_snippet ? `<pre class="text-xs text-slate-400 mt-2 whitespace-pre-wrap mono">${esc(m.reasoning_snippet)}</pre>` : ""}
+    </div>`).join("");
+}
+
+function renderScans(rows) {
+  const tbody = $("scan-logs");
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="5" class="text-center text-slate-500 px-3 py-4">No scans logged yet.</td></tr>'; return; }
+  tbody.innerHTML = rows.map(s => `
+    <tr>
+      <td class="px-3 py-2 mono text-slate-400">${shortTs(s.scanned_at)}</td>
+      <td class="px-3 py-2 text-right mono">${s.markets_found ?? 0}</td>
+      <td class="px-3 py-2 text-right mono">${s.markets_with_edge ?? 0}</td>
+      <td class="px-3 py-2 text-right mono">${s.bets_placed ?? 0}</td>
+      <td class="px-3 py-2 text-slate-500">${esc(s.errors || "")}</td>
+    </tr>`).join("");
+}
+
+loadAll();
+setInterval(loadAll, 30000);
+</script>
+</body>
+</html>
