@@ -59,21 +59,38 @@ Where 0.XX is your probability estimate (e.g. PROBABILITY: 0.67)"""
             json={
                 "model": REASONING_MODEL,
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 1500,
+                "max_tokens": 8000,
                 "temperature": 0.1,
             },
-            timeout=60,
+            timeout=180,
         )
         if resp.status_code != 200:
             print(f"  [Reasoning] R1 HTTP {resp.status_code}: {resp.text[:200]}", flush=True)
             return None, f"HTTP {resp.status_code}"
-        content = resp.json()["choices"][0]["message"]["content"].strip()
-        probability = _extract_probability(content)
+
+        choice = resp.json()["choices"][0]
+        message = choice.get("message", {})
+        content = (message.get("content") or "").strip()
+        reasoning = (message.get("reasoning_content") or "").strip()
+        finish_reason = choice.get("finish_reason")
+
+        # Try final answer first, then chain-of-thought as fallback
+        probability = _extract_probability(content) if content else None
+        if probability is None and reasoning:
+            probability = _extract_probability(reasoning)
+
         if probability is None:
-            print(f"  [Reasoning] R1 returned no parseable PROBABILITY. Tail: {content[-120:]!r}", flush=True)
+            print(
+                f"  [Reasoning] R1 returned no parseable PROBABILITY. "
+                f"finish_reason={finish_reason!r} content_len={len(content)} "
+                f"reasoning_len={len(reasoning)} content_tail={content[-120:]!r} "
+                f"reasoning_tail={reasoning[-120:]!r}",
+                flush=True,
+            )
         else:
             print(f"  [Reasoning] R1 → {probability:.1%}", flush=True)
-        return probability, content
+
+        return probability, content or reasoning
 
     except Exception as e:
         print(f"  [Reasoning] Error: {e}", flush=True)
