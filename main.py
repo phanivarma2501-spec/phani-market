@@ -18,7 +18,7 @@ from core.executor import execute_paper_trade, check_open_positions
 from api.routes import app, update_last_reasoning
 from settings import (
     SCAN_INTERVAL_HOURS, PAPER_TRADING, STARTING_BANKROLL,
-    EDGE_THRESHOLD_BUY, METACULUS_GAP_THRESHOLD
+    EDGE_THRESHOLD_BUY, METACULUS_GAP_THRESHOLD, API_PORT
 )
 
 
@@ -198,13 +198,11 @@ if __name__ == "__main__":
     # Initialise database
     init_db()
 
-    # Run first scan immediately
-    run_scan()
-
-    # Start scheduler in background thread
+    # Kick off scans in the background — scheduler runs the first scan immediately,
+    # so Flask can start serving (and Railway's healthcheck can pass) without waiting.
     t = threading.Thread(target=scheduler, daemon=True)
     t.start()
 
-    # Start Flask API
-    print("\n[API] Starting on port 8000...")
-    app.run(host="0.0.0.0", port=8000, use_reloader=False)
+    # Flask blocks here as the main thread
+    print(f"\n[API] Starting on port {API_PORT}...")
+    app.run(host="0.0.0.0", port=API_PORT, use_reloader=False)
