@@ -22,7 +22,8 @@ Polymarket API → Research Agent (DeepSeek V3) → Reasoning Agent (DeepSeek R1
 
 ```
 DEEPSEEK_API_KEY=your_deepseek_api_key
-DB_PATH=phani_market.db
+TURSO_DATABASE_URL=libsql://your-db.turso.io
+TURSO_AUTH_TOKEN=your_token
 PORT=8000
 ```
 
