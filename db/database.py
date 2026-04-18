@@ -183,6 +183,13 @@ def close_trade(trade_id: int, exit_price: float, pnl: float, outcome: str):
     )
 
 
+def update_trade_calibrated_probability(trade_id: int, calibrated_probability: float):
+    _execute(
+        "UPDATE trades SET calibrated_probability=? WHERE id=?",
+        [calibrated_probability, trade_id]
+    )
+
+
 def get_open_trades():
     return _rows_to_dicts(_execute("SELECT * FROM trades WHERE status='open'"))
 
