@@ -23,7 +23,10 @@ MAX_POSITION_PCT = 0.05      # Max 5% of bankroll per bet
 MIN_POSITION_USD = 5.0       # Minimum bet size
 
 # ─── Metaculus ─────────────────────────────────────────────────────────────
-METACULUS_GAP_THRESHOLD = 0.10   # Bet when gap > 10%
+METACULUS_ENABLED = os.environ.get("METACULUS_ENABLED", "false").lower() == "true"
+METACULUS_API_TOKEN = os.environ.get("METACULUS_API_TOKEN", "")
+METACULUS_GAP_THRESHOLD = 0.10       # Blend when |metaculus - calibrated| > this
+METACULUS_MATCH_THRESHOLD = 0.35     # Jaccard similarity floor to accept a match
 METACULUS_BASE_URL = "https://www.metaculus.com/api2"
 
 # ─── GDELT ─────────────────────────────────────────────────────────────────
