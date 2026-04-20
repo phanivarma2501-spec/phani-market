@@ -18,6 +18,7 @@ from core.calibration import calibrate, apply_metaculus_adjustment
 from core.kelly import calculate_kelly
 from core.edge import check_edge
 from core.executor import execute_paper_trade, check_open_positions
+from core.correlation import classify, count_buckets, blocked_reason, BUCKET_CAP
 from api.routes import app, update_last_reasoning
 from settings import (
     SCAN_INTERVAL_HOURS, PAPER_TRADING, STARTING_BANKROLL,
@@ -66,6 +67,11 @@ def run_scan():
         open_trades = get_open_trades()
         open_market_ids = {t["market_id"] for t in open_trades}
         open_count = len(open_trades)
+        # Running bucket counts — incremented as new bets fire inside the loop so
+        # we don't stack 4 Iran positions in a single scan under a snapshot.
+        bucket_counts = count_buckets(t["question"] for t in open_trades)
+        if bucket_counts:
+            print(f"[Scan] Current buckets: {dict(bucket_counts)}")
         print(f"[Scan] Currently holding {open_count} open position(s)")
 
         # Cooldown: any market traded (open or closed) within window is blocked
@@ -94,6 +100,17 @@ def run_scan():
             if market["id"] in cooldown_market_ids:
                 print(f"  [Main] ⏭️ Cooldown ({REENTRY_COOLDOWN_HOURS}h) — skipping")
                 market_log["skipped_reason"] = "Cooldown"
+                reasoning_log.append(market_log)
+                continue
+
+            # Correlation cap: skip pre-LLM if this market's bucket is already full.
+            # Saves the two DeepSeek calls when we wouldn't bet anyway.
+            bucket = classify(market["question"])
+            market_log["bucket"] = bucket
+            cap_reason = blocked_reason(bucket, bucket_counts)
+            if cap_reason:
+                print(f"  [Main] ⏭️ Correlation cap: {cap_reason} — skipping")
+                market_log["skipped_reason"] = f"Correlation: {cap_reason}"
                 reasoning_log.append(market_log)
                 continue
 
@@ -178,6 +195,7 @@ def run_scan():
                 bets_placed += 1
                 open_count += 1
                 open_market_ids.add(market["id"])
+                bucket_counts[bucket] += 1
                 market_log["trade_placed"] = True
                 market_log["trade_id"] = trade.get("id")
 
