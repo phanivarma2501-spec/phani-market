@@ -3,7 +3,7 @@ import requests
 from typing import List, Dict, Optional
 from settings import (
     POLYMARKET_GAMMA_URL, POLYMARKET_BASE_URL,
-    MIN_LIQUIDITY_USD, MAX_MARKETS_PER_SCAN, EXCLUDED_CATEGORIES,
+    MIN_LIQUIDITY_USD, MAX_MARKETS_PER_SCAN,
 )
 
 
@@ -36,12 +36,13 @@ def get_active_markets() -> List[Dict]:
         data = resp.json()
         markets = data if isinstance(data, list) else data.get("markets", [])
         filtered = []
-        skipped_liquidity = skipped_no_date = skipped_parse = skipped_category = 0
+        skipped_liquidity = skipped_no_date = skipped_parse = skipped_sports = 0
         for m in markets:
             try:
-                category = (m.get("category") or "").lower()
-                if any(ex in category for ex in EXCLUDED_CATEGORIES):
-                    skipped_category += 1
+                # Polymarket's `category` field is almost always null — use sportsMarketType
+                # (set to "moneyline"/"spread"/etc. on all sports markets) as the real signal.
+                if m.get("sportsMarketType"):
+                    skipped_sports += 1
                     continue
                 liquidity = float(m.get("liquidity") or 0)
                 if liquidity < MIN_LIQUIDITY_USD:
@@ -70,7 +71,7 @@ def get_active_markets() -> List[Dict]:
                 skipped_parse += 1
                 continue
         print(f"[Polymarket] {len(markets)} fetched | {len(filtered)} passed | "
-              f"skipped: category={skipped_category}, liquidity={skipped_liquidity}, "
+              f"skipped: sports={skipped_sports}, liquidity={skipped_liquidity}, "
               f"no_date={skipped_no_date}, parse={skipped_parse}")
         filtered.sort(key=lambda x: x["volume_24hr"], reverse=True)
         return filtered[:MAX_MARKETS_PER_SCAN]
@@ -80,7 +81,7 @@ def get_active_markets() -> List[Dict]:
 
 
 def get_market_price(market_id: str) -> Optional[Dict]:
-    """Get current YES/NO prices for a market."""
+    """Get current YES/NO prices and closed state for a market."""
     try:
         resp = requests.get(f"{POLYMARKET_GAMMA_URL}/markets/{market_id}", timeout=10)
         resp.raise_for_status()
@@ -88,7 +89,11 @@ def get_market_price(market_id: str) -> Optional[Dict]:
         prices = _parse_json_list(m.get("outcomePrices"))
         yes = float(prices[0]) if len(prices) > 0 else 0.5
         no = float(prices[1]) if len(prices) > 1 else 1 - yes
-        return {"yes_price": yes, "no_price": no}
+        return {
+            "yes_price": yes,
+            "no_price": no,
+            "closed": bool(m.get("closed", False)),
+        }
     except Exception as e:
         print(f"[Polymarket] Error fetching price for {market_id}: {e}")
         return None

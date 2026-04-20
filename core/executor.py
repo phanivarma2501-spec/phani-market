@@ -78,6 +78,30 @@ def check_open_positions():
         current_no_price = prices["no_price"]
         current_price = current_yes_price if direction == "YES" else current_no_price
 
+        # Resolution detection: if Polymarket marks the market closed, settle the trade.
+        # Without this, a resolved market whose price settled to 0 looks like "huge edge"
+        # to check_exit and the position is held forever, blocking new trades.
+        if prices.get("closed"):
+            final_price = current_price
+            pnl = size_usd * (final_price - entry_price) / entry_price
+            if final_price >= 0.99:
+                outcome = "won"
+            elif final_price <= 0.01:
+                outcome = "lost"
+            else:
+                outcome = "resolved_other"
+            close_trade(
+                trade_id=trade["id"],
+                exit_price=final_price,
+                pnl=round(pnl, 2),
+                outcome=outcome,
+            )
+            print(
+                f"  [Executor] 🏁 RESOLVED trade #{trade['id']} ({outcome}): "
+                f"{direction} @ {entry_price:.3f} → {final_price:.3f} | P&L: ${pnl:.2f}"
+            )
+            continue
+
         # Belief refresh: re-run research + reasoning only if price moved enough to matter.
         # Stale beliefs were the reason positions accumulated — fresh evidence lets exits fire.
         price_delta = abs(current_price - entry_price)
