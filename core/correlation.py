@@ -33,10 +33,8 @@ BUCKETS: List[Tuple[str, List[str]]] = [
         "la liga", "bundesliga", "serie a", "stanley cup", "super bowl",
         "world series", "masters tournament", "wimbledon",
     ]),
-    ("entertainment", [
-        "bachelor", "bachelorette", "taylor swift", "kim kardashian",
-        "oscar", "grammy", "eurovision", "dancing with", "kanye",
-    ]),
+    # entertainment/tv/celebrity/reality are hard-excluded in data/polymarket.py
+    # via EXCLUDED_CATEGORIES, so there's no bucket for them here.
     ("us_politics", [
         "rubio", "vance", "fed chair", "biden", "harris", "trump",
         "supreme court", "us presidential", "us senate", "us house",

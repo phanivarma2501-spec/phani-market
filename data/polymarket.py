@@ -4,7 +4,49 @@ from typing import List, Dict, Optional
 from settings import (
     POLYMARKET_GAMMA_URL, POLYMARKET_BASE_URL,
     MIN_LIQUIDITY_USD, MAX_MARKETS_PER_SCAN, MIN_ENTRY_PRICE,
+    EXCLUDED_CATEGORIES,
 )
+
+
+# Polymarket's `category` field is almost always null, so EXCLUDED_CATEGORIES
+# is mapped to question-text keywords here. Substring-matched case-insensitively.
+_CATEGORY_KEYWORDS = {
+    "gaming": [
+        "counter-strike", "cs:go", "cs2", "league of legends", "lol:",
+        "dota", "valorant", "overwatch", "starcraft", "fortnite",
+        "call of duty", "apex legends", "hearthstone", "rocket league",
+    ],
+    "esports": ["esports", " lcs ", " lec ", " lck ", " lpl ", "worlds finals", " iem ", " esl "],
+    "entertainment": [
+        "oscar", "grammy", "emmy", "eurovision", "golden globe",
+        "cannes", "box office", "academy award", "met gala",
+    ],
+    "tv": [
+        "bachelor", "bachelorette", "survivor season", "big brother",
+        "love island", "drag race", "real housewives", "dancing with",
+        "the voice", "season finale", "tv show", "netflix series",
+    ],
+    "celebrity": [
+        "kardashian", "kanye", "taylor swift", "beyonce", "rihanna",
+        "drake", "nicki minaj", "celebrity",
+    ],
+    "reality": [
+        "bachelor", "bachelorette", "survivor ", "big brother",
+        "love island", "drag race", "real housewives", "reality tv",
+        "reality show",
+    ],
+}
+
+
+def _matches_excluded_category(question: str) -> Optional[str]:
+    """Return the excluded category name if the question text matches any of its
+    keywords; None otherwise. First match wins."""
+    q = (question or "").lower()
+    for category in EXCLUDED_CATEGORIES:
+        keywords = _CATEGORY_KEYWORDS.get(category, [])
+        if any(kw in q for kw in keywords):
+            return category
+    return None
 
 
 def _parse_json_list(value):
@@ -36,13 +78,20 @@ def get_active_markets() -> List[Dict]:
         data = resp.json()
         markets = data if isinstance(data, list) else data.get("markets", [])
         filtered = []
-        skipped_liquidity = skipped_no_date = skipped_parse = skipped_sports = skipped_extreme = 0
+        skipped_liquidity = skipped_no_date = skipped_parse = 0
+        skipped_sports = skipped_extreme = skipped_category = 0
         for m in markets:
             try:
                 # Polymarket's `category` field is almost always null — use sportsMarketType
                 # (set to "moneyline"/"spread"/etc. on all sports markets) as the real signal.
                 if m.get("sportsMarketType"):
                     skipped_sports += 1
+                    continue
+                # Keyword-based exclusion for EXCLUDED_CATEGORIES (gaming/esports/
+                # entertainment/tv/celebrity/reality). Category field is null so we
+                # pattern-match the question text.
+                if _matches_excluded_category(m.get("question", "")):
+                    skipped_category += 1
                     continue
                 liquidity = float(m.get("liquidity") or 0)
                 if liquidity < MIN_LIQUIDITY_USD:
@@ -77,8 +126,9 @@ def get_active_markets() -> List[Dict]:
                 skipped_parse += 1
                 continue
         print(f"[Polymarket] {len(markets)} fetched | {len(filtered)} passed | "
-              f"skipped: sports={skipped_sports}, liquidity={skipped_liquidity}, "
-              f"extreme={skipped_extreme}, no_date={skipped_no_date}, parse={skipped_parse}")
+              f"skipped: sports={skipped_sports}, category={skipped_category}, "
+              f"liquidity={skipped_liquidity}, extreme={skipped_extreme}, "
+              f"no_date={skipped_no_date}, parse={skipped_parse}")
         filtered.sort(key=lambda x: x["volume_24hr"], reverse=True)
         return filtered[:MAX_MARKETS_PER_SCAN]
     except Exception as e:

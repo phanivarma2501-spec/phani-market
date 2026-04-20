@@ -15,7 +15,10 @@ EDGE_THRESHOLD_STRONG = 0.08 # 8% = strong signal
 MIN_ENTRY_PRICE = 0.05      # Skip longshots: no bets where entry price < 5%
 MAX_OPEN_POSITIONS = 7      # Hard cap on concurrent open positions
 REENTRY_COOLDOWN_HOURS = 24 # Don't re-enter a market within N hours of any prior trade
-EXCLUDED_CATEGORIES = ["sports", "gaming", "esports"]  # Skip these market categories entirely
+EXCLUDED_CATEGORIES = ["gaming", "esports", "entertainment", "tv", "celebrity", "reality"]
+# Sports games are filtered separately via Polymarket's sportsMarketType field.
+# The above categories are matched against question text keywords in polymarket.py
+# because the Gamma API's `category` field is almost always null.
 
 # ─── Kelly Criterion ───────────────────────────────────────────────────────
 KELLY_FRACTION = 0.25        # Quarter Kelly — conservative
