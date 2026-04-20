@@ -3,7 +3,7 @@ import requests
 from typing import List, Dict, Optional
 from settings import (
     POLYMARKET_GAMMA_URL, POLYMARKET_BASE_URL,
-    MIN_LIQUIDITY_USD, MAX_MARKETS_PER_SCAN,
+    MIN_LIQUIDITY_USD, MAX_MARKETS_PER_SCAN, MIN_ENTRY_PRICE,
 )
 
 
@@ -27,7 +27,7 @@ def get_active_markets() -> List[Dict]:
         params = {
             "active": "true",
             "closed": "false",
-            "limit": 100,
+            "limit": 500,
             "order": "volume24hr",
             "ascending": "false"
         }
@@ -36,7 +36,7 @@ def get_active_markets() -> List[Dict]:
         data = resp.json()
         markets = data if isinstance(data, list) else data.get("markets", [])
         filtered = []
-        skipped_liquidity = skipped_no_date = skipped_parse = skipped_sports = 0
+        skipped_liquidity = skipped_no_date = skipped_parse = skipped_sports = skipped_extreme = 0
         for m in markets:
             try:
                 # Polymarket's `category` field is almost always null — use sportsMarketType
@@ -55,6 +55,12 @@ def get_active_markets() -> List[Dict]:
                 prices = _parse_json_list(m.get("outcomePrices"))
                 yes_price = float(prices[0]) if len(prices) > 0 else 0.5
                 no_price = float(prices[1]) if len(prices) > 1 else 1 - yes_price
+                # Skip extreme markets pre-LLM: if either side is below MIN_ENTRY_PRICE,
+                # the buy-side would be blocked in check_edge anyway and the other side
+                # has ~zero edge room. Save the 2 LLM calls.
+                if min(yes_price, no_price) < MIN_ENTRY_PRICE:
+                    skipped_extreme += 1
+                    continue
                 filtered.append({
                     "id": str(m.get("id") or m.get("conditionId") or ""),
                     "conditionId": m.get("conditionId"),
@@ -72,7 +78,7 @@ def get_active_markets() -> List[Dict]:
                 continue
         print(f"[Polymarket] {len(markets)} fetched | {len(filtered)} passed | "
               f"skipped: sports={skipped_sports}, liquidity={skipped_liquidity}, "
-              f"no_date={skipped_no_date}, parse={skipped_parse}")
+              f"extreme={skipped_extreme}, no_date={skipped_no_date}, parse={skipped_parse}")
         filtered.sort(key=lambda x: x["volume_24hr"], reverse=True)
         return filtered[:MAX_MARKETS_PER_SCAN]
     except Exception as e:

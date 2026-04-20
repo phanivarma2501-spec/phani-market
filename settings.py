@@ -36,7 +36,7 @@ GDELT_BASE_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 POLYMARKET_BASE_URL = "https://clob.polymarket.com"
 POLYMARKET_GAMMA_URL = "https://gamma-api.polymarket.com"
 MIN_LIQUIDITY_USD = 1000     # Skip illiquid markets
-MAX_MARKETS_PER_SCAN = 10
+MAX_MARKETS_PER_SCAN = 25
 
 # ─── Paper Trading ─────────────────────────────────────────────────────────
 PAPER_TRADING = True
